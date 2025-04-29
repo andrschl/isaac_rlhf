@@ -7,7 +7,37 @@ from datetime import datetime
 from typing import Literal
 from einops import einsum
 
+from isaac_rlhf.config import RlhfCfg
 from isaac_rlhf.utils.rlhf_utils import MuteOutput, get_freest_gpu
+
+# Helpers
+def set_seed(cfg):
+    import torch
+    import random
+    import numpy as np
+    torch.manual_seed(cfg.base_seed)
+    np.random.seed(cfg.base_seed)
+    random.seed(cfg.base_seed)
+    if cfg.device.startswith("cuda"):
+        torch.cuda.manual_seed_all(cfg.base_seed)
+
+def create_environment(cfg: RlhfCfg, init: bool = False):
+    from isaaclab.app import AppLauncher
+    if cfg.device.startswith("cuda"):
+        cfg.device = f"cuda:{get_freest_gpu()}"
+    launcher = AppLauncher(headless=True, device=cfg.device)
+    simulation_app = launcher.app
+
+    import gymnasium as gym
+    import isaaclab_tasks  # noqa: F401
+    from isaaclab.envs import ManagerBasedRLEnvCfg
+    from isaaclab_tasks.utils import parse_env_cfg
+
+    num_envs = cfg.num_envs if not init else 1  # use 1 env for initialization
+    env_cfg: ManagerBasedRLEnvCfg = parse_env_cfg(cfg.task, num_envs=num_envs, device=cfg.device)
+    env_cfg.seed = cfg.base_seed
+    env = gym.make(cfg.task, cfg=env_cfg)
+    return env, simulation_app
 
 # Worker class
 class WorkerTask:
@@ -17,54 +47,18 @@ class WorkerTask:
             rewards_queue, 
             results_queue, 
             termination_event, 
-            env_cfg,
-            rl_cfg,
-            rlhf_cfg,
-            device
+            cfg: RlhfCfg
             ):
                     
         self.idx = idx
         self.rewards_queue = rewards_queue
         self.results_queue = results_queue
         self.termination_event = termination_event
-        self.env_cfg = env_cfg
-        self.rl_cfg = rl_cfg
-        self.rlhf_cfg = rlhf_cfg
-        self.device = device
+        self.device = cfg.device
 
-        self.create_environment()
+        set_seed(cfg)
+        self.env, self.simulation_app = create_environment(cfg)
         
-    def create_environment(self):
-        """Create the environment for the task."""
-        from isaaclab.app import AppLauncher
-        if self.device == "cuda":
-            self.device = f"cuda:{get_freest_gpu()}"
-        app_launcher = AppLauncher(headless=True, device=self.device)
-        self.simulation_app = app_launcher.app
-
-        import gymnasium as gym
-        import isaaclab_tasks  # noqa: F401
-        from isaaclab.envs import ManagerBasedRLEnvCfg
-        from isaaclab_tasks.utils import parse_env_cfg
-
-        env_cfg: ManagerBasedRLEnvCfg = parse_env_cfg(self.env_cfg["task"])
-        env_cfg.sim.device = self.device
-        env_cfg.seed = self.env_cfg["env_seed"]
-        if self.env_cfg.get("num_envs") is not None:
-            env_cfg.num_envs = env_cfg["num_envs"]
-        self.env = gym.make(self.env_cfg["task"], cfg=env_cfg)
-
-    def set_seed(self):
-        """Set the random seed for the environment."""
-        import torch
-        import random
-        import numpy as np
-        torch.manual_seed(self.env_cfg["env_seed"])
-        np.random.seed(self.env_cfg["env_seed"])
-        random.seed(self.env_cfg["env_seed"])
-        if self.device.startswith("cuda"):
-            torch.cuda.manual_seed_all(self.env_cfg["env_seed"])
-
     def prepare_rlhf_environment(self, reward_param: torch.Tensor):
         """Prepare environment for RLHF using reward_param."""
         from isaaclab.envs import ManagerBasedRLEnv
@@ -85,9 +79,9 @@ class WorkerTask:
             from rsl_rl.runners import OnPolicyRunner
             from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 
-            agent_cfg: RslRlOnPolicyRunnerCfg = load_cfg_from_registry(self.env_cfg["task"], "rsl_rl_cfg_entry_point")
+            agent_cfg: RslRlOnPolicyRunnerCfg = load_cfg_from_registry(self.cfg.task, "rsl_rl_cfg_entry_point")
             agent_cfg.device = self.device
-            agent_cfg.max_iterations = self.rl_cfg["num_rl_iterations"]
+            agent_cfg.max_iterations = self.cfg.num_rl_iterations
 
             log_root_path = os.path.join("logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name)
             log_root_path = os.path.abspath(log_root_path)
@@ -110,20 +104,22 @@ class WorkerTask:
         
     def record_features(self, runner, env, max_traj_len=128):
 
-        if env.num_envs < self.rlhf_cfg["num_trajectories"]:
+        if env.num_envs < self.cfg.num_trajectories_per_run:
             raise ValueError(
-                f"Number of trajectories ({self.rlhf_cfg['num_trajectories']}) is greater than number of environments ({env.num_envs})."
+                f"Number of trajectories ({self.cfg.num_trajectories_per_run}) is greater than number of environments ({env.num_envs})."
             )
         
         if self.rl_cfg["rl_library"] == "rsl_rl":
             # reset the env first
-            from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
+
+            # from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
             # env = RslRlVecEnvWrapper(env.unwrapped.copy())
             with torch.inference_mode():
                 env.reset()
             obs, _ = env.get_observations()
 
-            policy = runner.get_inference_policy(device=self.device)
+            # policy = runner.get_inference_policy(device=self.device)
+            runner.eval_mode()
             gamma  = runner.alg.gamma
 
             traj_features = torch.zeros(self.rlhf_cfg["num_trajectories"], self.env_cfg["num_features"], device=self.device)
@@ -180,7 +176,7 @@ class WorkerTask:
 
 # Define main worker function
 def worker_main(idx, rewards_queue, results_queue, termination_event, worker_cfg):
-    task = WorkerTask(idx, rewards_queue, results_queue, termination_event, **worker_cfg)
+    task = WorkerTask(idx, rewards_queue, results_queue, termination_event, worker_cfg)
     task.run()
 
 # Task manager
@@ -188,46 +184,18 @@ class RlhfTaskManager:
 
     def __init__(
         self,
-        task: str,
-        num_processes: int = 2,
-        num_envs = None,
-        device: str = "cuda",
-        base_seed: int = 42,
-        rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl",
-        num_rl_iterations: int = 100,
-        num_rl_runs: int = 2,
-        rlhf_algorithm: Literal["vanilla", "ts"] = "vanilla",
-        **kwargs,
+        cfg: RlhfCfg,
     ):
-
-        self.task = task
-        self.num_processes = num_processes
-        self.num_rl_runs = num_rl_runs
-        self.device = device
-        self.base_seed = base_seed
-        self.env_cfg = {
-                "task": task,
-                "num_envs": num_envs,
-                "num_features": None,
-                "gt_params": None,
-                "dt": None,
-            }
-        self.rl_cfg = {
-                "rl_library": rl_library,
-                "num_rl_iterations": num_rl_iterations,
-            }
-        self.rlhf_cfg = {
-                "rlhf_algorithm": rlhf_algorithm,
-                "num_samples": 1 * 2,
-                "num_trajectories": 2,
-                "lr": 1e-3,
-                "l2_reg": 1e-6,
-                "epochs": 500,
-                "batch_size": 64,
-            }
-        
+        """
+        Initialize the RLHF Task Manager.
+        """
+        # unpack the configuration
+        self.cfg = cfg
+        self.device = cfg.device
+      
+        # Initialize multiprocessing data structures
         self.shared_data = multiprocessing.Manager().dict()  # if you need to share constants
-        self.rewards_queues = [multiprocessing.Queue() for _ in range(num_processes)]
+        self.rewards_queues = [multiprocessing.Queue() for _ in range(cfg.num_processes)]
         self.results_queue = multiprocessing.Queue()
         self.termination_event = multiprocessing.Event()
         self.processes = {}
@@ -239,9 +207,8 @@ class RlhfTaskManager:
         self.init_reward_model()
 
         # Create worker processes using the top-level worker function
-        for idx in range(self.num_processes):
-            self.env_cfg["env_seed"] = self.base_seed + idx
-            worker_cfg = {"env_cfg": self.env_cfg, "rl_cfg": self.rl_cfg, "rlhf_cfg": self.rlhf_cfg, "device": self.device}
+        for idx in range(self.cfg.num_processes):
+            worker_cfg = cfg.replace(base_seed=self.cfg.base_seed + idx)
             p = multiprocessing.Process(
                 target=worker_main,
                 args=(idx, self.rewards_queues[idx], self.results_queue, self.termination_event, worker_cfg)
@@ -250,18 +217,6 @@ class RlhfTaskManager:
             p.start()
 
     # Helpers for initialization
-
-    def set_seed(self):
-        """Set the random seed for the environment."""
-        import torch
-        import random
-        import numpy as np
-        torch.manual_seed(self.base_seed)
-        np.random.seed(self.base_seed)
-        random.seed(self.base_seed)
-        if self.device.startswith("cuda"):
-            torch.cuda.manual_seed_all(self.base_seed)
-
     def init_constants(self):
 
         p = multiprocessing.Process(target=self.init_process)
@@ -271,7 +226,7 @@ class RlhfTaskManager:
 
     def init_process(self):
             env, simulation_app = self.create_environment()
-            self.shared_data["num_features"] = self.get_num_features(env)
+            self.shared_data["num_features"] = self.get_num_features(env) 
             self.shared_data["gt_params"] = self.get_reward_weights(env)
             self.shared_data["dt"] = env.unwrapped.step_dt
             env.close()
@@ -380,14 +335,14 @@ class RlhfTaskManager:
     
 
         # print(f"[INFO] Using {self.env_cfg['num_features']} features and {len(self.env_cfg['gt_params'])} reward parameters.")
-        # return [torch.tensor(self.env_cfg["gt_params"], device="cpu").detach().clone()] * self.num_processes
+        # return [torch.tensor(self.env_cfg["gt_params"], device="cpu").detach().clone()] * self.cfg.num_processes
 
     def distribute_rewards(self, reward_params: list[torch.Tensor]) -> list[dict]:
         """Distribute reward parameters to workers and collect results."""
         all_results = []
         total = len(reward_params)
-        for i in range(0, total, self.num_processes):
-            batch = reward_params[i: i + self.num_processes]
+        for i in range(0, total, self.cfg.num_processes):
+            batch = reward_params[i: i + self.cfg.num_processes]
             for idx in range(len(batch)):
                 self.rewards_queues[idx].put(batch[idx])
             batch_results = [None] * len(batch)

@@ -26,7 +26,7 @@ def train_reward_model(
     reward_model: LinearReward,
     feature_storage: FeatureStorageRlhf,
     lr: float = 1e-3,
-    l2_reg: float = 1e-2,
+    l2_reg: float = 1e-6,
     epochs: int = 500,
     batch_size: int = 64,
     num_workers: int = 0,
