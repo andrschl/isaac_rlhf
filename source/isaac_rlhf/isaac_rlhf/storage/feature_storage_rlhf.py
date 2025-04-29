@@ -1,6 +1,5 @@
 """Under development. Do not use yet."""
 
-
 from __future__ import annotations
 
 import torch
@@ -13,9 +12,16 @@ if TYPE_CHECKING:
 
 # This storage is for linear reward classes. It stores the reward terms of for a manager-based environment.
 
-class FeatureStorageRlhf():
 
-    def __init__(self, num_features, max_num_samples_per_ep=1000, max_num_samples_tot=100000, dt=1.0, device="cpu"):
+class FeatureStorageRlhf:
+    def __init__(
+        self,
+        num_features,
+        max_num_samples_per_ep=1000,
+        max_num_samples_tot=100000,
+        dt=1.0,
+        device="cpu",
+    ):
         self.device = device
         self.num_features = num_features
         self.max_num_samples_per_ep = max_num_samples_per_ep
@@ -25,18 +31,29 @@ class FeatureStorageRlhf():
         self.policy_step = 0
 
         # pre‐allocate circular buffers
-        self.traj_features = torch.zeros((max_num_samples_per_ep, 2, num_features), device=device)
-        self.policy_ids = torch.zeros((max_num_samples_per_ep, 2), dtype=torch.long, device=device)
-        self.mask = torch.zeros((self.max_num_samples_per_ep,), dtype=torch.bool, device=device)
+        self.traj_features = torch.zeros(
+            (max_num_samples_per_ep, 2, num_features), device=device
+        )
+        self.policy_ids = torch.zeros(
+            (max_num_samples_per_ep, 2), dtype=torch.long, device=device
+        )
+        self.mask = torch.zeros(
+            (self.max_num_samples_per_ep,), dtype=torch.bool, device=device
+        )
 
         # data
-        self.X_hist = torch.zeros((self.max_num_samples_tot, self.num_features), device=device)
-        self.y_hist = torch.zeros((self.max_num_samples_tot,), dtype=torch.long, device=device)
-        self.hist_mask = torch.zeros((self.max_num_samples_tot,), dtype=torch.bool, device=device)
+        self.X_hist = torch.zeros(
+            (self.max_num_samples_tot, self.num_features), device=device
+        )
+        self.y_hist = torch.zeros(
+            (self.max_num_samples_tot,), dtype=torch.long, device=device
+        )
+        self.hist_mask = torch.zeros(
+            (self.max_num_samples_tot,), dtype=torch.bool, device=device
+        )
         self.hist_step = 0
 
     def fill_storage(self, results: List[Dict[str, torch.Tensor]]):
-
         # expect results: List[Tensor] of length 2*k, each [num_trajs, num_features]
         for idx in range(0, len(results), 2):
             f0 = results[idx]["features"].to(self.device)
@@ -45,8 +62,8 @@ class FeatureStorageRlhf():
                 buf_idx = self.step % self.max_num_samples_per_ep
                 self.traj_features[buf_idx, 0] = f0[j]
                 self.traj_features[buf_idx, 1] = f1[j]
-                self.policy_ids[buf_idx, 0] = 2*self.policy_step
-                self.policy_ids[buf_idx, 1] = 2*self.policy_step + 1
+                self.policy_ids[buf_idx, 0] = 2 * self.policy_step
+                self.policy_ids[buf_idx, 1] = 2 * self.policy_step + 1
                 self.mask[buf_idx] = True
                 self.step += 1
             self.policy_step += 1
@@ -73,10 +90,10 @@ class FeatureStorageRlhf():
 
     def get_preferences(self, reward_model: "LinearReward"):
         # collect only the valid design‐points
-        X = self.get_design_points()         # [N, num_features]
-        utilities = reward_model.get_gt_reward(X)     # [N]
-        probs = torch.sigmoid(utilities)       # P(prefer first over second)
-        y = torch.bernoulli(probs).long()      # [N]
+        X = self.get_design_points()  # [N, num_features]
+        utilities = reward_model.get_gt_reward(X)  # [N]
+        probs = torch.sigmoid(utilities)  # P(prefer first over second)
+        y = torch.bernoulli(probs).long()  # [N]
 
         # store and return new data points
         for i in range(X.size(0)):
@@ -120,8 +137,14 @@ class FeatureStorageRlhf():
         print(f"Saved preference data to {csv_path}")
 
     def clear(self):
-        self.traj_features = torch.zeros((self.max_num_samples_per_ep, self.num_features), device=self.device)
-        self.policy_ids = torch.zeros((self.max_num_samples_per_ep,), dtype=torch.long, device=self.device)
-        self.mask = torch.zeros((self.max_num_samples_per_ep,), dtype=torch.bool, device=self.device)
+        self.traj_features = torch.zeros(
+            (self.max_num_samples_per_ep, self.num_features), device=self.device
+        )
+        self.policy_ids = torch.zeros(
+            (self.max_num_samples_per_ep,), dtype=torch.long, device=self.device
+        )
+        self.mask = torch.zeros(
+            (self.max_num_samples_per_ep,), dtype=torch.bool, device=self.device
+        )
         self.step = 0
         self.policy_step = 0

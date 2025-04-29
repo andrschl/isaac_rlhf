@@ -10,19 +10,21 @@ class RlhfCfg:
     # Environment arguments
     task: str = "Isaac-Cartpole-v0"
     num_envs: Optional[int] = None
-    num_features: Optional[int] = field(init=False, default=None)
-    gt_params: Optional[torch.Tensor] = field(init=False, default=None)
-    dt: Optional[float] = field(init=False, default=None)
+    num_features: Optional[int] = None
+    gt_params: Optional[torch.Tensor] = None
+    dt: Optional[float] = None
 
     # RLHF arguments
     num_rlhf_iterations: int = 10
     rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last"] = "vanilla"
     num_rl_runs: int = 2
     num_trajectories_per_run: int = 100
+    trajectory_length: int = 150
 
     # MLE arguments
     num_mle_iterations: int = 100
     mle_lr: float = 1e-3
+    mle_l2_reg: float = 1e-6
     mle_epochs: int = 500
     mle_batch_size: int = 64
 

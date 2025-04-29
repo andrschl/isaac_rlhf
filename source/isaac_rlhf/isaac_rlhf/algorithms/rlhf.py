@@ -2,6 +2,7 @@ import multiprocessing
 import os
 import traceback
 import torch
+import time
 from contextlib import nullcontext
 from datetime import datetime
 from typing import Literal
@@ -113,7 +114,7 @@ class WorkerTask:
         else:
             raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
 
-    def record_features(self, runner, env, max_traj_len=128):
+    def record_features(self, runner, env):
         if env.num_envs < self.cfg.num_trajectories_per_run:
             raise ValueError(
                 f"Number of trajectories ({self.cfg.num_trajectories_per_run}) is greater than number of environments ({env.num_envs})."
@@ -131,18 +132,26 @@ class WorkerTask:
             runner.eval_mode()
             gamma = runner.alg.gamma
 
+            print(self.cfg.to_dict())
+
             traj_features = torch.zeros(
-                self.cfg.num_trajectories, self.cfg.num_features, device=self.device
+                self.cfg.num_trajectories_per_run,
+                self.cfg.num_features,
+                device=self.device,
             )
-            terminated = torch.zeros(self.cfg.num_trajectories, device=self.device)
-            for t in range(max_traj_len):
+            terminated = torch.zeros(
+                self.cfg.num_trajectories_per_run, device=self.device
+            )
+            for t in range(self.cfg.trajectory_length):
                 with torch.inference_mode():
                     actions = runner.alg.policy.act(obs).detach()
                 obs, rewards, dones, _ = env.step(actions)
                 obs = runner.obs_normalizer(obs)
-                terminated = terminated.int() | dones[: self.cfg.num_trajectories].int()
+                terminated = (
+                    terminated.int() | dones[: self.cfg.num_trajectories_per_run].int()
+                )
                 step_features = einsum(
-                    self.get_reward_features()[: self.cfg.num_trajectories],
+                    self.get_reward_features()[: self.cfg.num_trajectories_per_run],
                     (1 - terminated),
                     "i j, i -> i j",
                 )
@@ -156,7 +165,7 @@ class WorkerTask:
 
             # traj_features = torch.zeros(self.rlhf_cfg["num_trajectories"], self.env_cfg["num_features"], device=self.device)
             # terminated = torch.zeros(self.rlhf_cfg["num_trajectories"], device=self.device)
-            # for t in range(max_traj_len):
+            # for t in range(self.cfg.trajectory_length):
             #     with torch.inference_mode():
             #         actions = policy(obs)
             #     obs, rewards, dones, _ = env.step(actions)
@@ -183,6 +192,7 @@ class WorkerTask:
     def run(self):
         """Main loop for the worker task."""
 
+        print(f"[INFO]: Worker {self.idx} started.")
         while not self.termination_event.is_set():
             reward_param = self.rewards_queue.get()
             if reward_param == "Stop":
@@ -247,11 +257,13 @@ class RlhfTaskManager:
         self.init_feature_storage()
         self.init_reward_model()
 
-        print(f"[INFO] Running Rlhf with the following configuration: {cfg.to_dict()}")
+        print(
+            f"[INFO] Running Rlhf with the following configuration: {self.cfg.to_dict()}"
+        )
 
         # Create worker processes using the top-level worker function
         for idx in range(self.cfg.num_processes):
-            worker_cfg = cfg.replace(base_seed=self.cfg.base_seed + idx)
+            worker_cfg = self.cfg.replace(base_seed=self.cfg.base_seed + idx + 10)
             p = multiprocessing.Process(
                 target=worker_main,
                 args=(
@@ -272,7 +284,6 @@ class RlhfTaskManager:
         p = multiprocessing.Process(target=self.init_process)
         p.start()
         p.join()
-        print(f"[INFO] Process {p.pid} finished.")
         self.init_from_shared_data()
 
     def init_process(self):
@@ -280,25 +291,18 @@ class RlhfTaskManager:
         self.shared_data["num_features"] = self.get_num_features(env)
         self.shared_data["gt_params"] = self.get_reward_weights(env)
         self.shared_data["dt"] = env.unwrapped.step_dt
-        print(
-            f"[INFO] Process {os.getpid()} initialized with num_features={self.shared_data['num_features']} and gt_params={self.shared_data['gt_params']}."
-        )
+
         env.close()
+        time.sleep(5)  # Give some time for the process to close properly
         simulation_app.close()
-        print(f"[INFO] Closed dummy env.")
 
     def init_from_shared_data(self):
-        if "num_features" in self.shared_data:
-            print(f"[INFO] Using {self.shared_data['num_features']} features.")
-            self.cfg.num_features = self.shared_data["num_features"]
-        if "gt_params" in self.shared_data:
-            print(
-                f"[INFO] Using {len(self.shared_data['gt_params'])} reward parameters."
-            )
-            self.cfg.gt_params = self.shared_data["gt_params"]
-        if "dt" in self.shared_data:
-            print(f"[INFO] Using dt = {self.shared_data['dt']}.")
-            self.cfg.dt = self.shared_data["dt"]
+        print(
+            f"[INFO] Initializing RLHF with {self.shared_data['num_features']} features and {len(self.shared_data['gt_params'])} reward parameters."
+        )
+        self.cfg.num_features = self.shared_data["num_features"]
+        self.cfg.gt_params = self.shared_data["gt_params"]
+        self.cfg.dt = self.shared_data["dt"]
 
     def get_num_features(self, env):
         return len(
@@ -342,6 +346,9 @@ class RlhfTaskManager:
         gt_reward = self.reward_model.get_gt_reward(traj_features).mean().item()
         return gt_reward
 
+    def get_gt_reward_params(self):
+        return self.cfg.gt_params
+
     def get_pred_reward(self):
         """Compute approx. predicted reward."""
         traj_features = self.feature_storage.get_traj_features()
@@ -366,10 +373,10 @@ class RlhfTaskManager:
         # Run MLE
         thetahat = self.reward_model.update_reward_and_confidence_set(
             self.feature_storage,
-            lr=self.cfg.lr,
-            l2_reg=self.cfg.l2_reg,
-            epochs=self.cfg.epochs,
-            batch_size=self.cfg.batch_size,
+            lr=self.cfg.mle_lr,
+            l2_reg=self.cfg.mle_l2_reg,
+            epochs=self.cfg.mle_epochs,
+            batch_size=self.cfg.mle_batch_size,
             device=device,
         )
 
