@@ -11,6 +11,7 @@ from typing import Literal, Optional
 from isaac_rlhf.algorithms.rlhf import RlhfTaskManager
 from isaac_rlhf.config import RlhfCfg
 
+
 class RlhfRunner:
     """Runs Rlhf training for a given task."""
 
@@ -29,7 +30,7 @@ class RlhfRunner:
 
         # Logging
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.log_dir = os.path.join("logs", "rlhf", task, timestamp)
+        self.log_dir = os.path.join("logs", "rlhf", cfg.task, timestamp)
         os.makedirs(self.log_dir)
         # init wandb
         wandb.init(
@@ -64,13 +65,13 @@ class RlhfRunner:
             # Logging
             print("[INFO]: Logging...")
             logdict = {
-                    "gt_reward": self.task_manager.get_gt_reward(),
-                    "pred_reward": self.task_manager.get_pred_reward(),
-                    "reward_error": self.task_manager.get_reward_error(),
-                    "reward_params": reward_params,
-                    "reward_params_gt": self.task_manager.get_gt_reward_params(),
-                    "V_inv eigenvalues": self.task_manager.get_V_inv_eigenvalues()
-                }
+                "gt_reward": self.task_manager.get_gt_reward(),
+                "pred_reward": self.task_manager.get_pred_reward(),
+                "reward_error": self.task_manager.get_reward_error(),
+                "reward_params": reward_params,
+                "reward_params_gt": self.task_manager.get_gt_reward_params(),
+                "V_inv eigenvalues": self.task_manager.get_V_inv_eigenvalues()
+            }
             self.logging_step(logdict, iter)
 
         self.save_final_results()

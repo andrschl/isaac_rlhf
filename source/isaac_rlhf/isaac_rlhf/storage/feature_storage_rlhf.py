@@ -40,7 +40,7 @@ class FeatureStorageRlhf():
         # expect results: List[Tensor] of length 2*k, each [num_trajs, num_features]
         for idx in range(0, len(results), 2):
             f0 = results[idx]["features"].to(self.device)
-            f1 = results[idx+1]["features"].to(self.device)
+            f1 = results[idx + 1]["features"].to(self.device)
             for j in range(f0.size(0)):
                 buf_idx = self.step % self.max_num_samples_per_ep
                 self.traj_features[buf_idx, 0] = f0[j]
@@ -65,7 +65,7 @@ class FeatureStorageRlhf():
     def get_design_points(self):
         # returns design_points
         valid_ids = self.mask.nonzero(as_tuple=True)[0]
-        return self.traj_features[valid_ids,0] - self.traj_features[valid_ids,1]
+        return self.traj_features[valid_ids, 0] - self.traj_features[valid_ids, 1]
 
     def get_Xy(self):
         ids = self.hist_mask.nonzero(as_tuple=True)[0]

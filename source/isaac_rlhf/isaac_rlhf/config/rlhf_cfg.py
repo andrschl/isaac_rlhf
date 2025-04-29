@@ -2,9 +2,11 @@ from dataclasses import dataclass, asdict, replace as dc_replace, field
 from typing import Optional, Literal
 import torch
 
+
 @dataclass
 class RlhfCfg:
     """Configuration for RLHF training."""
+
     # Environment arguments
     task: str = "Isaac-Cartpole-v0"
     num_envs: Optional[int] = None
@@ -23,7 +25,7 @@ class RlhfCfg:
     mle_lr: float = 1e-3
     mle_epochs: int = 500
     mle_batch_size: int = 64
-    
+
     # RL arguments
     num_rl_iterations: int = 100
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
@@ -35,6 +37,6 @@ class RlhfCfg:
 
     def to_dict(self):
         return asdict(self)
-    
+
     def replace(self, **kwargs):
         return dc_replace(self, **kwargs)

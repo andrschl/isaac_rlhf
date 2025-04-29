@@ -11,27 +11,11 @@ import multiprocessing as mp
 from isaac_rlhf.runners import RlhfRunner
 from isaac_rlhf.config import RlhfCfg
 
-def main(args_cli):
 
-    cfg = RlhfCfg(
-        # Environment arguments
-        task=args_cli.task,
-        num_envs=args_cli.num_envs,
-        # RLHF arguments
-        num_rlhf_iterations=args_cli.num_rlhf_iterations,
-        rlhf_algorithm=args_cli.rlhf_algorithm,
-        # MLE arguments
-        # RL arguments
-        num_rl_runs=args_cli.num_rl_runs,
-        num_trajectories_per_run=args_cli.num_trajectories_per_run,
-        num_rl_iterations=args_cli.num_rl_iterations,
-        rl_library=args_cli.rl_library,
-        # System arguments
-        base_seed=args_cli.base_seed,
-        num_processes=1,
-        device=args_cli.device,
-    )
-    rlhf = RlhfRunner(rlhf_config)
+def main(args_cli):
+    kwargs = {k: v for k, v in vars(args_cli).items() if v is not None}
+    cfg = RlhfCfg(**kwargs)
+    rlhf = RlhfRunner(cfg)
 
     rlhf.run()
 
@@ -48,17 +32,23 @@ if __name__ == "__main__":
         help="Number of environments to use for training. If None, it will use the default value for the task.",
     )
     # RLHF arguments
-    parser.add_argument("--num_rlhf_iterations", type=int, default=10, help="The number of RLHF iterations to run.")
+    parser.add_argument(
+        "--num_rlhf_iterations",
+        type=int,
+        help="The number of RLHF iterations to run.",
+    )
     parser.add_argument(
         "--rlhf_algorithm",
         type=str,
         choices=["vanilla", "ts_double", "ts_last"],
         help="The RLHF algorithm to use.",
     )
-    
+
     # RL arguments
     parser.add_argument(
-        "--num_rl_runs", type=int, default=2, help="Number of RL runs per reward iteration. Should be multiple of two."
+        "--num_rl_runs",
+        type=int,
+        help="Number of RL runs per reward iteration. Should be multiple of two.",
     )
     parser.add_argument(
         "--num_trajectories_per_run",
@@ -78,14 +68,18 @@ if __name__ == "__main__":
     )
 
     # System arguments
-    parser.add_argument("--device", type=str, default="cuda", help="The device to run training on.")
+    parser.add_argument(
+        "--device", type=str, default="cuda", help="The device to run training on."
+    )
     parser.add_argument(
         "--num_processes",
         type=int,
         help="The number of processes to use for training.",
     )
-    parser.add_argument("--base_seed", type=int, help="The random seed to use for the environment.")
-    
+    parser.add_argument(
+        "--base_seed", type=int, help="The random seed to use for the environment."
+    )
+
     args_cli = parser.parse_args()
 
     # Run the main function

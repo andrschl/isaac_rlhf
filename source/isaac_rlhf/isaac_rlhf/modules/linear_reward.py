@@ -5,14 +5,14 @@ import torch.nn as nn
 from torch.distributions import Normal
 from isaac_rlhf.storage import FeatureStorageRlhf
 
-class LinearReward(nn.Module):
 
+class LinearReward(nn.Module):
     def __init__(
         self,
         num_features,
-        lambda_ = 1.0,
-        gt_params = None,
-        device = "cpu",
+        lambda_=1.0,
+        gt_params=None,
+        device="cpu",
         **kwargs,
     ):
         if kwargs:
@@ -32,15 +32,15 @@ class LinearReward(nn.Module):
 
     def get_reward(self, features):
         return self.reward(features).squeeze(1)
-    
+
     def get_reward_params(self):
         return self.reward.weight.data.view(-1).clone().cpu()
-    
+
     def get_gt_reward(self, features):
         if self.gt_params is None:
             raise ValueError("Ground truth parameters are not set.")
         return torch.tensordot(features, self.gt_params, dims=([-1], [0])).to("cpu")
-    
+
     def update_curr_V(self, feature_storage: FeatureStorageRlhf):
         # design_points: [num_samples, num_features]
         design_points = feature_storage.get_design_points()
@@ -54,17 +54,17 @@ class LinearReward(nn.Module):
         self.V_inv = self.curr_V_inv.clone()
 
     def update_reward_and_confidence_set(
-            self, 
-            feature_storage: FeatureStorageRlhf, 
-            lr: float = 1e-3,
-            l2_reg: float = 1e-6,
-            epochs: int = 500,
-            batch_size: int = 64,
-            num_workers: int = 0,
-            device: str = "cpu"
-        ):
-
+        self,
+        feature_storage: FeatureStorageRlhf,
+        lr: float = 1e-3,
+        l2_reg: float = 1e-6,
+        epochs: int = 500,
+        batch_size: int = 64,
+        num_workers: int = 0,
+        device: str = "cpu",
+    ):
         from isaac_rlhf.algorithms import train_reward_model
+
         self.update_curr_V(feature_storage)
         self.update_V(feature_storage)
         self.step += 1
@@ -78,6 +78,6 @@ class LinearReward(nn.Module):
             num_workers=num_workers,
             device=device,
         )
-    
+
     def save(self, logdir: str):
         torch.save(self.state_dict(), logdir + "/reward_model.pth")
