@@ -15,12 +15,13 @@ class RlhfCfg:
     dt: Optional[float] = None
 
     # RLHF arguments
-    num_rlhf_iterations: int = 10
+    num_rlhf_iterations: int = 30
     rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "vanilla"
     num_rl_runs: int = 1
-    num_trajectories_per_run: int = 10
+    num_trajectories_per_run: int = 2
     trajectory_length: int = 150
-    ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
+    ignored_reward_terms: list[str] = field(default_factory=lambda: [])
+    # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
     # MLE arguments
     num_mle_iterations: int = 100
