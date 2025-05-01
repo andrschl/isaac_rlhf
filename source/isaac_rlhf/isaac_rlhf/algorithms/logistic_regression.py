@@ -117,14 +117,16 @@ def train_reward_model(
                 f"train_acc={train_acc:.4f} test_acc={test_acc:.4f}"
             )
 
-    # wandb.log({
-    #     "mle/epoch": epoch,
-    #     "mle/bce": bce_tot,
-    #     "mle/gt_bce": gt_bce_tot,
-    #     "mle/l2": l2.item(),
-    #     "mle/train_accuracy": train_acc,
-    #     "mle/test_accuracy": test_acc,
-    # }, step=epoch)
+    wandb.log(
+        {
+            "mle/epoch": epoch,
+            "mle/bce": bce_tot,
+            "mle/gt_bce": gt_bce_tot,
+            "mle/l2": l2.item(),
+            "mle/train_accuracy": train_acc,
+            "mle/test_accuracy": test_acc,
+        }
+    )
 
     return reward_model.reward.weight.data.view(-1).clone()
 
