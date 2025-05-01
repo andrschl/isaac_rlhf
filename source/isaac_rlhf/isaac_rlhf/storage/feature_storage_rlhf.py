@@ -43,6 +43,8 @@ class FeatureStorageRlhf:
             self.traj_features_prev = torch.zeros(
                 (max_ep_buffers_size, self.num_features), device=device
             )
+        self.mean_episode_reward = 0.0
+        self.mean_gt_episode_reward = 0.0
         self.policy_ids = torch.zeros(
             (max_ep_buffers_size, 2), dtype=torch.long, device=device
         )
@@ -74,7 +76,7 @@ class FeatureStorageRlhf:
 
             for idx in range(0, len(results)):
                 features = results[idx]["features"].to(self.device)
-                num_comparisons = features.size(0) // 2
+                num_comparisons = self.cfg.num_trajectories_per_run // 2
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = features[2*j]
@@ -90,7 +92,7 @@ class FeatureStorageRlhf:
 
             for idx in range(0, len(results)):
                 features = results[idx]["features"].to(self.device)
-                num_comparisons = features.size(0) // 2    # use only half of samples at time t and half at time t+1
+                num_comparisons = self.cfg.num_trajectories_per_run // 2    # use only half of samples at time t and half at time t+1
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = features[2*j]
@@ -114,7 +116,9 @@ class FeatureStorageRlhf:
             for idx in range(0, len(results), 2):
                 f0 = results[idx]["features"].to(self.device)
                 f1 = results[idx + 1]["features"].to(self.device)
-                for j in range(f0.size(0)):
+                num_comparisons = self.cfg.num_trajectories_per_run // 2
+
+                for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = f0[j]
                     self.traj_features[buf_idx, 1] = f1[j]

@@ -74,6 +74,8 @@ class WorkerTask:
                 if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                     term_cfg.weight = float(reward_param[idx].item())
                     idx += 1
+            print(f"[DEBUG] Using reward parameters:", reward_param, [term_cfg.weight for term_cfg in unwrapped.reward_manager._term_cfgs])
+            print(f"[DEBUG] Using reward parameters:", reward_param, [term_cfg.weight for term_cfg in unwrapped.reward_manager._term_cfgs])
         else:
             raise Exception("Environment must be of type ManagerBasedRLEnv.")
 
@@ -110,8 +112,8 @@ class WorkerTask:
                 num_learning_iterations=agent_cfg.max_iterations,
                 init_at_random_ep_len=True,
             )
-
-            return self.record_features(runner, env), log_dir
+            traj_features, mean_episode_reward = self.record_features(runner, env)
+            return traj_features, mean_episode_reward, log_dir
 
         else:
             raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
@@ -137,29 +139,31 @@ class WorkerTask:
             print(self.cfg.to_dict())
 
             traj_features = torch.zeros(
-                self.cfg.num_trajectories_per_run,
+                env.num_envs,
                 self.cfg.num_features,
                 device=self.device,
             )
             terminated = torch.zeros(
-                self.cfg.num_trajectories_per_run, device=self.device
+                env.num_envs, device=self.device
             )
+            episode_rewards = torch.zeros(env.num_envs, device=self.device)
             for t in range(self.cfg.trajectory_length):
                 with torch.inference_mode():
                     actions = runner.alg.policy.act(obs).detach()
                 obs, rewards, dones, _ = env.step(actions)
                 obs = runner.obs_normalizer(obs)
                 terminated = (
-                    terminated.int() | dones[: self.cfg.num_trajectories_per_run].int()
+                    terminated.int() | dones.int()
                 )
                 step_features = einsum(
-                    self.get_feature_values()[: self.cfg.num_trajectories_per_run],
+                    self.get_feature_values(),
                     (1 - terminated),
                     "i j, i -> i j",
                 )
                 traj_features += gamma**t * step_features * self.cfg.dt
+                episode_rewards += gamma**t * rewards
 
-            return traj_features
+            return traj_features, episode_rewards.mean().item()
 
             # policy = runner.get_inference_policy(device=self.device)
             # runner.eval_mode()
@@ -205,11 +209,12 @@ class WorkerTask:
                 # Only display output for worker 0; others can be muted
                 context = nullcontext() if self.idx == 0 else MuteOutput()
                 with context:
-                    features, log_dir = self.rl_training()
+                    features, mean_episode_reward, log_dir = self.rl_training()
                 result = {
                     "success": True,
                     "log_dir": log_dir,
                     "features": features.detach().cpu().clone(),
+                    "mean_episode_reward": mean_episode_reward,
                 }
             except Exception as e:
                 result = {"success": False, "exception": str(e)}
@@ -330,18 +335,18 @@ class RlhfTaskManager:
         )
 
     # Helpers for logging
-    def get_gt_reward(self):
+    def get_gt_reward(self, results):
         """Compute approx. ground truth reward."""
-        traj_features = self.feature_storage.get_traj_features()
+        traj_features = sum([result["features"] for result in results]) / len(results)
         gt_reward = self.reward_model.get_gt_reward(traj_features).mean().item()
         return gt_reward
 
     def gt_params_as_tensor(self):
         return torch.Tensor(list(self.cfg.gt_params.values()))
 
-    def get_pred_reward(self):
+    def get_pred_reward(self, results):
         """Compute approx. predicted reward."""
-        traj_features = self.feature_storage.get_traj_features()
+        traj_features = sum([result["features"] for result in results]) / len(results)
         pred_reward = self.reward_model.get_reward(traj_features).mean().item()
         return pred_reward
 

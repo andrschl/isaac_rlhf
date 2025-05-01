@@ -65,8 +65,9 @@ class RlhfRunner:
             # Logging
             print("[INFO]: Logging...")
             logdict_wandb = {
-                "gt_reward": self.task_manager.get_gt_reward(),
-                "pred_reward": self.task_manager.get_pred_reward(),
+                "gt_reward": self.task_manager.get_gt_reward(results),
+                "pred_reward": self.task_manager.get_pred_reward(results), 
+                "pred_reward_debug": sum([result["mean_episode_reward"] for result in results]) / len(results),
                 "reward_error": self.task_manager.get_reward_error(),
                 "lambda_max(V_inv)": self.task_manager.get_V_inv_eigenvalues().max(),
                 "lambda_min(V_inv)": self.task_manager.get_V_inv_eigenvalues().min(),
