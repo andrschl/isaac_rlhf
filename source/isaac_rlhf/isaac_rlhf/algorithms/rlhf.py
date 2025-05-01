@@ -77,8 +77,6 @@ class WorkerTask:
                 if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                     term_cfg.weight = float(reward_param[idx].item())
                     idx += 1
-            print(f"[DEBUG] Using reward parameters:", reward_param, [term_cfg.weight for term_cfg in unwrapped.reward_manager._term_cfgs])
-            print(f"[DEBUG] Using reward parameters:", reward_param, [term_cfg.weight for term_cfg in unwrapped.reward_manager._term_cfgs])
         else:
             raise Exception("Environment must be of type ManagerBasedRLEnv.")
 

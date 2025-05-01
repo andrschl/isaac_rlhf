@@ -22,6 +22,7 @@ class LinearReward(nn.Module):
             )
         super().__init__()
         self.reward = nn.Linear(num_features, 1, bias=False, device=device)
+        # nn.init.zeros_(self.reward.weight)  # Initialize weights to zero
         self.V = lambda_ * torch.eye(num_features).to("cpu")
         self.V_inv = (1 / lambda_) * torch.eye(num_features).to("cpu")
         self.curr_V = self.V.clone().to("cpu")
