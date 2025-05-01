@@ -16,10 +16,11 @@ class RlhfCfg:
 
     # RLHF arguments
     num_rlhf_iterations: int = 10
-    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last"] = "vanilla"
-    num_rl_runs: int = 2
-    num_trajectories_per_run: int = 100
+    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "vanilla"
+    num_rl_runs: int = 1
+    num_trajectories_per_run: int = 10
     trajectory_length: int = 150
+    ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
     # MLE arguments
     num_mle_iterations: int = 100
@@ -29,7 +30,7 @@ class RlhfCfg:
     mle_batch_size: int = 64
 
     # RL arguments
-    num_rl_iterations: int = 100
+    num_rl_iterations: int = 50
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
 
     # System arguments

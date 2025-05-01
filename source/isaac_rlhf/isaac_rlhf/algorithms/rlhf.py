@@ -69,9 +69,11 @@ class WorkerTask:
         # Adjust reward parameters in the environment:
         unwrapped = self.env.unwrapped
         if isinstance(unwrapped, ManagerBasedRLEnv):
-            for idx, term_cfg in enumerate(unwrapped.reward_manager._term_cfgs):
-                if term_cfg.weight != 0.0:
+            idx = 0
+            for name, term_cfg in zip(unwrapped.reward_manager._term_names, unwrapped.reward_manager._term_cfgs):
+                if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                     term_cfg.weight = float(reward_param[idx].item())
+                    idx += 1
         else:
             raise Exception("Environment must be of type ManagerBasedRLEnv.")
 
@@ -151,7 +153,7 @@ class WorkerTask:
                     terminated.int() | dones[: self.cfg.num_trajectories_per_run].int()
                 )
                 step_features = einsum(
-                    self.get_reward_features()[: self.cfg.num_trajectories_per_run],
+                    self.get_feature_values()[: self.cfg.num_trajectories_per_run],
                     (1 - terminated),
                     "i j, i -> i j",
                 )
@@ -171,7 +173,7 @@ class WorkerTask:
             #     obs, rewards, dones, _ = env.step(actions)
             #     obs = runner.obs_normalizer(obs)
             #     terminated = terminated.int() | dones[:self.rlhf_cfg["num_trajectories"]].int()
-            #     step_features = einsum(self.get_reward_features()[:self.rlhf_cfg["num_trajectories"]], (1-terminated), 'i j, i -> i j')
+            #     step_features = einsum(self.get_feature_values()[:self.rlhf_cfg["num_trajectories"]], (1-terminated), 'i j, i -> i j')
             #     traj_features += gamma ** t * step_features * self.env_cfg["dt"]
 
             # return traj_features
@@ -179,10 +181,10 @@ class WorkerTask:
         else:
             raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
 
-    def get_reward_features(self):
+    def get_feature_values(self):
         reward_features = []
-        for term_cfg in self.env.unwrapped.reward_manager._term_cfgs:
-            if term_cfg.weight != 0.0:
+        for name, term_cfg in zip(self.env.unwrapped.reward_manager._term_names, self.env.unwrapped.reward_manager._term_cfgs):
+            if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                 reward_features.append(
                     term_cfg.func(self.env.unwrapped, **term_cfg.params)
                 )
@@ -288,8 +290,7 @@ class RlhfTaskManager:
 
     def init_process(self):
         env, simulation_app = create_environment(self.cfg, init=True)
-        self.shared_data["num_features"] = self.get_num_features(env)
-        self.shared_data["gt_params"] = self.get_reward_weights(env)
+        self.shared_data["gt_params"] = self.fetch_gt_params(env)
         self.shared_data["dt"] = env.unwrapped.step_dt
 
         env.close()
@@ -298,36 +299,25 @@ class RlhfTaskManager:
 
     def init_from_shared_data(self):
         print(
-            f"[INFO] Initializing RLHF with {self.shared_data['num_features']} features and {len(self.shared_data['gt_params'])} reward parameters."
+            f"[INFO] Initializing RLHF with {len(self.shared_data['gt_params'])} reward parameters."
         )
-        self.cfg.num_features = self.shared_data["num_features"]
         self.cfg.gt_params = self.shared_data["gt_params"]
+        self.cfg.num_features = len(self.cfg.gt_params)
         self.cfg.dt = self.shared_data["dt"]
 
-    def get_num_features(self, env):
-        return len(
-            [
-                0
-                for term_cfg in env.unwrapped.reward_manager._term_cfgs
-                if term_cfg.weight != 0.0
-            ]
-        )
-
-    def get_reward_weights(self, env):
-        weights = []
-        for term_cfg in env.unwrapped.reward_manager._term_cfgs:
-            if term_cfg.weight != 0.0:
-                weights.append(term_cfg.weight)
-        return weights
+    def fetch_gt_params(self, env):
+        gt_params = {}
+        term_cfgs = env.unwrapped.reward_manager._term_cfgs
+        term_names = env.unwrapped.reward_manager._term_names
+        for term_cfg, name in zip(term_cfgs, term_names):
+            if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
+                gt_params[name] = term_cfg.weight
+        return gt_params
 
     def init_feature_storage(self):
         from isaac_rlhf.storage.feature_storage_rlhf import FeatureStorageRlhf
 
-        self.feature_storage = FeatureStorageRlhf(
-            num_features=self.cfg.num_features,
-            dt=self.cfg.dt,
-            device="cpu",  # use CPU for feature storage
-        )
+        self.feature_storage = FeatureStorageRlhf(cfg=self.cfg)
 
     def init_reward_model(self):
         from isaac_rlhf.modules import LinearReward
@@ -335,7 +325,7 @@ class RlhfTaskManager:
         self.reward_model = LinearReward(
             num_features=self.cfg.num_features,
             lambda_=1.0,
-            gt_params=torch.Tensor(self.cfg.gt_params),
+            gt_params=self.gt_params_as_tensor(),
             device=self.device,
         )
 
@@ -346,8 +336,8 @@ class RlhfTaskManager:
         gt_reward = self.reward_model.get_gt_reward(traj_features).mean().item()
         return gt_reward
 
-    def get_gt_reward_params(self):
-        return self.cfg.gt_params
+    def gt_params_as_tensor(self):
+        return torch.Tensor(list(self.cfg.gt_params.values()))
 
     def get_pred_reward(self):
         """Compute approx. predicted reward."""
@@ -358,7 +348,7 @@ class RlhfTaskManager:
     def get_reward_error(self):
         """Compute the difference between ground truth and predicted reward."""
         return torch.norm(
-            self.reward_model.gt_params - self.reward_model.get_reward_params(), p=2
+            self.gt_params_as_tensor() - self.reward_model.get_reward_params(), p=2
         ).item()
 
     def get_V_inv_eigenvalues(self):
@@ -367,7 +357,7 @@ class RlhfTaskManager:
         return eigvals.cpu().real
 
     # Update and distribute rewards
-    def get_reward_params(self, device: str = "cpu") -> list[torch.Tensor]:
+    def sample_reward_params(self, device: str = "cpu") -> list[torch.Tensor]:
         """Return the reward parameters as CPU tensors."""
 
         # Run MLE
@@ -381,37 +371,40 @@ class RlhfTaskManager:
         )
 
         # Return updated reward params
-        if self.cfg.rlhf_algorithm == "vanilla":
-            return [thetahat] * self.cfg.num_rl_runs
-        if self.cfg.rlhf_algorithm == "ts_double":
-            covariance = self.reward_model.V_inv
-            distribution = torch.distributions.MultivariateNormal(
-                thetahat, covariance_matrix=covariance
-            )
-            return [distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)]
-        if self.cfg.rlhf_algorithm == "ts_last":
-            pass
-        else:
-            raise Exception(
-                f"RLHF algorithm {self.cfg.rlhf_algorithm} is not supported yet."
-            )
+        if self.feature_storage.update_params:
+            if self.cfg.rlhf_algorithm == "vanilla":
+                self.reward_params = [thetahat] * self.cfg.num_rl_runs
+                return self.reward_params
+            if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
+                covariance = self.reward_model.V_inv
+                distribution = torch.distributions.MultivariateNormal(
+                    thetahat, covariance_matrix=covariance
+                )
+                self.reward_params = [distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)]
+                return self.reward_params
+            if self.cfg.rlhf_algorithm == "rl":
+                self.reward_params = [self.gt_params_as_tensor()] * self.cfg.num_rl_runs
+                return self.reward_params
+            else:
+                raise Exception(
+                    f"RLHF algorithm {self.cfg.rlhf_algorithm} is not supported yet."
+                )
 
         # print(f"[INFO] Using {self.env_cfg['num_features']} features and {len(self.env_cfg['gt_params'])} reward parameters.")
         # return [torch.tensor(self.env_cfg["gt_params"], device="cpu").detach().clone()] * self.cfg.num_processes
 
-    def distribute_rewards(self, reward_params: list[torch.Tensor]) -> list[dict]:
+    def distribute_rewards(self) -> list[dict]:
         """Distribute reward parameters to workers and collect results."""
         all_results = []
-        total = len(reward_params)
+        total = len(self.reward_params)
         for i in range(0, total, self.cfg.num_processes):
-            batch = reward_params[i : i + self.cfg.num_processes]
+            batch = self.reward_params[i : i + self.cfg.num_processes]
             for idx in range(len(batch)):
                 self.rewards_queues[idx].put(batch[idx])
             batch_results = [None] * len(batch)
             for _ in range(len(batch)):
                 idx, result = self.results_queue.get()
                 batch_results[idx] = result
-                print("[INFO] Design points: ", result["features"])
             all_results.extend(batch_results)
         self.feature_storage.fill_storage(all_results)
         print(f"[INFO] Collected results from {len(all_results)} policies.")

@@ -40,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--rlhf_algorithm",
         type=str,
-        choices=["vanilla", "ts_double", "ts_last"],
+        choices=["vanilla", "ts_double", "ts_last", "rl"],
         help="The RLHF algorithm to use.",
     )
 

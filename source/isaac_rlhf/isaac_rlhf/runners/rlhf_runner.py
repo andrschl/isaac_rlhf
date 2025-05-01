@@ -52,11 +52,11 @@ class RlhfRunner:
 
             # Update reward function
             print("[INFO]: Updating the reward function...")
-            reward_params = self.task_manager.get_reward_params()
+            reward_params = self.task_manager.sample_reward_params()
 
             # Train the RL agent
             print("[INFO]: Training RL agent with the following reward parameters:", reward_params)
-            results = self.task_manager.distribute_rewards(reward_params)
+            results = self.task_manager.distribute_rewards()
 
             # Observe feedback
             print("[INFO]: Observing preference feedback...")
@@ -64,27 +64,29 @@ class RlhfRunner:
 
             # Logging
             print("[INFO]: Logging...")
-            logdict = {
+            logdict_wandb = {
                 "gt_reward": self.task_manager.get_gt_reward(),
                 "pred_reward": self.task_manager.get_pred_reward(),
                 "reward_error": self.task_manager.get_reward_error(),
-                "reward_params": reward_params,
-                "reward_params_gt": self.task_manager.get_gt_reward_params(),
-                "V_inv eigenvalues": self.task_manager.get_V_inv_eigenvalues()
+                "lambda_max(V_inv)": self.task_manager.get_V_inv_eigenvalues().max(),
+                "lambda_min(V_inv)": self.task_manager.get_V_inv_eigenvalues().min(),
             }
-            self.logging_step(logdict, iter)
+            logdict_console = logdict_wandb.copy()
+            logdict_console["reward_params"] = reward_params,
+            logdict_console["reward_params_gt"] = self.task_manager.gt_params_as_tensor().tolist()
+            self.logging_step(logdict_wandb, logdict_console, iter)
 
         self.save_final_results()
 
         print("[INFO]: RLHF training completed.")
         self.task_manager.close()
 
-    def logging_step(self, logdict, step):
+    def logging_step(self, logdict_wandb, logdict_console, step):
         """Log and print the results."""
         print(f"{'#' * 20} RLHF step {step} {'#' * 20}")
-        for key, value in logdict.items():
+        for key, value in logdict_console.items():
             print(f"{key}: {value}")
-        self.writer.log(logdict, step=step)
+        self.writer.log(logdict_wandb, step=step)
 
     def save_final_results(self):
         """Save the final results."""

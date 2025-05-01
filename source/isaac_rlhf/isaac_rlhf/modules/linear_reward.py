@@ -29,12 +29,13 @@ class LinearReward(nn.Module):
         self.gt_params = gt_params.to("cpu") if gt_params is not None else None
         self.device = device
         self.step = 0
-
-    def get_reward(self, features):
-        return self.reward(features).squeeze(1)
+        
 
     def get_reward_params(self):
-        return self.reward.weight.data.view(-1).clone().cpu()
+            return self.reward.weight.data.view(-1).clone().cpu()
+    
+    def get_reward(self, features):
+        return self.reward(features).squeeze(1)
 
     def get_gt_reward(self, features):
         if self.gt_params is None:
