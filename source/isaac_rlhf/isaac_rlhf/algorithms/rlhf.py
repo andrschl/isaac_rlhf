@@ -70,7 +70,10 @@ class WorkerTask:
         unwrapped = self.env.unwrapped
         if isinstance(unwrapped, ManagerBasedRLEnv):
             idx = 0
-            for name, term_cfg in zip(unwrapped.reward_manager._term_names, unwrapped.reward_manager._term_cfgs):
+            for name, term_cfg in zip(
+                unwrapped.reward_manager._term_names,
+                unwrapped.reward_manager._term_cfgs,
+            ):
                 if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                     term_cfg.weight = float(reward_param[idx].item())
                     idx += 1
@@ -89,6 +92,7 @@ class WorkerTask:
                 self.cfg.task, "rsl_rl_cfg_entry_point"
             )
             agent_cfg.device = self.device
+            agent_cfg.seed = self.cfg.base_seed
             agent_cfg.max_iterations = self.cfg.num_rl_iterations
 
             log_root_path = os.path.join(
@@ -183,7 +187,10 @@ class WorkerTask:
 
     def get_feature_values(self):
         reward_features = []
-        for name, term_cfg in zip(self.env.unwrapped.reward_manager._term_names, self.env.unwrapped.reward_manager._term_cfgs):
+        for name, term_cfg in zip(
+            self.env.unwrapped.reward_manager._term_names,
+            self.env.unwrapped.reward_manager._term_cfgs,
+        ):
             if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
                 reward_features.append(
                     term_cfg.func(self.env.unwrapped, **term_cfg.params)
@@ -265,7 +272,7 @@ class RlhfTaskManager:
 
         # Create worker processes using the top-level worker function
         for idx in range(self.cfg.num_processes):
-            worker_cfg = self.cfg.replace(base_seed=self.cfg.base_seed + idx + 10)
+            worker_cfg = self.cfg.replace(base_seed=self.cfg.base_seed + idx + 1)
             p = multiprocessing.Process(
                 target=worker_main,
                 args=(
@@ -380,7 +387,9 @@ class RlhfTaskManager:
                 distribution = torch.distributions.MultivariateNormal(
                     thetahat, covariance_matrix=covariance
                 )
-                self.reward_params = [distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)]
+                self.reward_params = [
+                    distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)
+                ]
                 return self.reward_params
             if self.cfg.rlhf_algorithm == "rl":
                 self.reward_params = [self.gt_params_as_tensor()] * self.cfg.num_rl_runs

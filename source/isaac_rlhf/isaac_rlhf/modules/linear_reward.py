@@ -30,9 +30,8 @@ class LinearReward(nn.Module):
         self.device = device
         self.step = 0
         
-
     def get_reward_params(self):
-            return self.reward.weight.data.view(-1).clone().cpu()
+        return self.reward.weight.data.view(-1).clone().cpu()
     
     def get_reward(self, features):
         return self.reward(features).squeeze(1)
