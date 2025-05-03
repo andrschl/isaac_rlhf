@@ -60,7 +60,10 @@ class WorkerTask:
         self.termination_event = termination_event
         self.cfg = cfg
         self.device = cfg.device
+
+        print(f"[DEBUG] Worker {self.idx} start creating environment.")
         self.env, self.simulation_app = create_environment(cfg)
+        print(f"[DEBUG] Worker {self.idx} created environment: {self.env}")
 
     def prepare_rlhf_environment(self, reward_param: torch.Tensor):
         """Prepare environment for RLHF using reward_param."""
@@ -110,10 +113,22 @@ class WorkerTask:
             runner = OnPolicyRunner(
                 env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device
             )
+
+            # Load from previous checkpoint if available and not the first iteration
+            prev_checkpoint_path = getattr(self, "prev_checkpoint_path", None)
+            if self.cfg.resume and prev_checkpoint_path and os.path.exists(prev_checkpoint_path):
+                print(f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}")
+                runner.load(prev_checkpoint_path)
+
             runner.learn(
                 num_learning_iterations=agent_cfg.max_iterations,
                 init_at_random_ep_len=True,
             )
+
+            # Save the checkpoint for the next iteration
+            final_checkpoint_path = os.path.join(log_dir, f"model_{agent_cfg.max_iterations}.pt")
+            self.prev_checkpoint_path = final_checkpoint_path
+
             traj_features, mean_episode_reward = self.record_features(runner, env)
             return traj_features, mean_episode_reward, log_dir
 
@@ -162,23 +177,6 @@ class WorkerTask:
                 episode_rewards += gamma**t * rewards
 
             return traj_features, episode_rewards.mean().item()
-
-            # policy = runner.get_inference_policy(device=self.device)
-            # runner.eval_mode()
-            # gamma = runner.alg.gamma
-
-            # traj_features = torch.zeros(self.rlhf_cfg["num_trajectories"], self.env_cfg["num_features"], device=self.device)
-            # terminated = torch.zeros(self.rlhf_cfg["num_trajectories"], device=self.device)
-            # for t in range(self.cfg.trajectory_length):
-            #     with torch.inference_mode():
-            #         actions = policy(obs)
-            #     obs, rewards, dones, _ = env.step(actions)
-            #     obs = runner.obs_normalizer(obs)
-            #     terminated = terminated.int() | dones[:self.rlhf_cfg["num_trajectories"]].int()
-            #     step_features = einsum(self.get_feature_values()[:self.rlhf_cfg["num_trajectories"]], (1-terminated), 'i j, i -> i j')
-            #     traj_features += gamma ** t * step_features * self.env_cfg["dt"]
-
-            # return traj_features
 
         else:
             raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
@@ -363,31 +361,56 @@ class RlhfTaskManager:
 
     def get_V_inv_eigenvalues(self):
         """Compute the eigenvalues of the covariance matrix."""
-        eigvals, _ = torch.linalg.eig(self.reward_model.V_inv)
+        eigvals, _ = torch.linalg.eig(self.feature_storage.V_inv)
         return eigvals.cpu().real
 
-    # Update and distribute rewards
-    def update_reward_params(self, device: str = "cpu") -> list[torch.Tensor]:
-        """Return the reward parameters as CPU tensors."""
+    # Core methods
+    def distribute_rewards(self) -> list[dict]:
+        """Distribute reward parameters to workers and collect results."""
+        all_results = []
+        total = len(self.reward_params)
+        for i in range(0, total, self.cfg.num_processes):
+            batch = self.reward_params[i : i + self.cfg.num_processes]
+            for idx in range(len(batch)):
+                self.rewards_queues[idx].put(batch[idx])
+            batch_results = [None] * len(batch)
+            for _ in range(len(batch)):
+                idx, result = self.results_queue.get()
+                batch_results[idx] = result
+            all_results.extend(batch_results)
+        self.feature_storage.fill_storage(all_results)
+        print(f"[INFO] Collected results from {len(all_results)} policies.")
+        return all_results
+    
+    def get_preferences(self):
+        """Get synthetic preferences."""
+        self.feature_storage.get_preferences(self.reward_model)
 
-        # Run MLE
-        thetahat = self.reward_model.update_reward_and_confidence_set(
+    def mle_update(self):
+
+        from isaac_rlhf.algorithms import train_reward_model
+
+        return train_reward_model(
+            self.reward_model,
             self.feature_storage,
             lr=self.cfg.mle_lr,
             l2_reg=self.cfg.mle_l2_reg,
             epochs=self.cfg.mle_epochs,
-            batch_size=self.cfg.mle_batch_size,
-            device=device,
+            batch_size=self.cfg.mle_batch_size
         )
 
+    def sample_reward_params(self) -> list[torch.Tensor]:
+        """Return the reward parameters as CPU tensors."""
+
         # Return updated reward params
+        thetahat = self.reward_model.get_reward_params()
         if self.feature_storage.update_params:
             if self.cfg.rlhf_algorithm == "vanilla":
                 self.reward_params = [thetahat] * self.cfg.num_rl_runs
                 return self.reward_params
             if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
                 eps = 1e-6
-                cov = self.cfg.beta**2 * self.reward_model.V_inv
+                cov = self.cfg.beta**2 * self.feature_storage.V_inv
                 cov = cov + eps * torch.eye(
                     cov.shape[0]
                 )  # Add small noise to covariance for numerical stability
@@ -409,30 +432,14 @@ class RlhfTaskManager:
                     f"RLHF algorithm {self.cfg.rlhf_algorithm} is not supported yet."
                 )
 
-        # print(f"[INFO] Using {self.env_cfg['num_features']} features and {len(self.env_cfg['gt_params'])} reward parameters.")
-        # return [torch.tensor(self.env_cfg["gt_params"], device="cpu").detach().clone()] * self.cfg.num_processes
-
-    def distribute_rewards(self) -> list[dict]:
-        """Distribute reward parameters to workers and collect results."""
-        all_results = []
-        total = len(self.reward_params)
-        for i in range(0, total, self.cfg.num_processes):
-            batch = self.reward_params[i : i + self.cfg.num_processes]
-            for idx in range(len(batch)):
-                self.rewards_queues[idx].put(batch[idx])
-            batch_results = [None] * len(batch)
-            for _ in range(len(batch)):
-                idx, result = self.results_queue.get()
-                batch_results[idx] = result
-            all_results.extend(batch_results)
-        self.feature_storage.fill_storage(all_results)
-        print(f"[INFO] Collected results from {len(all_results)} policies.")
-        return all_results
-
-    def get_preferences_and_update_rewards(self):
-        """Get synthetic preferences."""
-        self.feature_storage.get_preferences(self.reward_model)
-        self.update_reward_params()
+    def query_now(self):
+        """Check if the lazy update condition is met."""
+        if self.cfg.lazy:
+            det_curr_V = torch.det(self.feature_storage.curr_V)
+            det_V = torch.det(self.feature_storage.V)
+            return det_curr_V >= self.cfg.lazy_constant * det_V 
+        else:
+            return True
 
     # Save results
     def save_results(self, log_dir: str):

@@ -64,6 +64,11 @@ class FeatureStorageRlhf:
         )
         self.hist_step = 0
 
+        # design matrices
+        self.V = self.cfg.lambda_ * torch.eye(self.cfg.num_features).to("cpu")
+        self.V_inv = (1 / self.cfg.lambda_) * torch.eye(self.cfg.num_features).to("cpu")
+        self.curr_V = self.V.clone().to("cpu")
+
     def fill_storage(self, results: List[Dict[str, torch.Tensor]]):
         """Fill the storage with features from the results.
         The results are expected to be a list of dictionaries, where each dictionary contains all
@@ -81,6 +86,10 @@ class FeatureStorageRlhf:
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = features[2 * j]
                     self.traj_features[buf_idx, 1] = features[2 * j + 1]
+                    self.curr_V += torch.outer(
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1], 
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1]
+                    )
                     self.policy_ids[buf_idx, 0] = self.policy_step
                     self.policy_ids[buf_idx, 1] = self.policy_step
                     self.mask[buf_idx] = True
@@ -108,6 +117,10 @@ class FeatureStorageRlhf:
                         self.traj_features[buf_idx, 1] = self.traj_features_prev[j]
                         self.policy_ids[buf_idx, 1] = self.policy_step - 1
                     self.traj_features_prev[j] = features[2 * j + 1]
+                    self.curr_V += torch.outer(
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1], 
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1]
+                    )
                     self.mask[buf_idx] = True
                     self.step += 1
                 self.policy_step += 1
@@ -124,6 +137,10 @@ class FeatureStorageRlhf:
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = f0[j]
                     self.traj_features[buf_idx, 1] = f1[j]
+                    self.curr_V += torch.outer(
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1], 
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1]
+                    )
                     self.policy_ids[buf_idx, 0] = 2 * self.policy_step
                     self.policy_ids[buf_idx, 1] = 2 * self.policy_step + 1
                     self.mask[buf_idx] = True
@@ -134,6 +151,8 @@ class FeatureStorageRlhf:
                 f"Unknown rlhf_algorithm: {self.cfg.rlhf_algorithm}. "
                 "Expected one of ['vanilla', 'ts_double', 'ts_last']."
             )
+        
+        self.curr_V_inv = torch.linalg.inv(self.curr_V)
 
         if self.step > self.max_ep_buffers_size:
             warnings.warn(
@@ -142,14 +161,14 @@ class FeatureStorageRlhf:
             )
 
     def get_preferences(self, reward_model: "LinearReward"):
-        # collect only the valid design‐points
+        # collect only the valid design‐points  TODO: Add optimal design here.
         X_new = self.get_new_design_points()  # [N, num_features]
+        print(f"[DEBUG]: Check curr_V {torch.allclose(self.curr_V, self.V + X_new.T @ X_new)}")
         utilities = reward_model.get_gt_reward(X_new)  # [N]
         probs = torch.sigmoid(utilities)  # P(prefer first over second)
         y_new = torch.bernoulli(probs).long()  # [N]
         print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
-
-        self.clear()
+        self.update_V()
 
         # store and return new data points
         for i in range(X_new.size(0)):
@@ -158,7 +177,21 @@ class FeatureStorageRlhf:
             self.y_hist[hidx] = y_new[i]
             self.hist_mask[hidx] = True
             self.hist_step += 1
+
+        self.clear()
+        
         return X_new, y_new
+    
+    def update_V(self, X_new=None):
+        # design_points: [num_samples, num_features]    TODO: Add functionality for different settings here.
+        self.V = self.curr_V.clone()
+        self.V = (self.V + self.V.T) / 2  # symmetrize for numerical stability
+        self.V_inv = torch.linalg.inv(self.V)
+        self.V_inv = (self.V_inv + self.V_inv.T) / 2  # symmetrize for numerical stability
+
+    def get_new_design_points(self):
+        # returns design_points
+        return self.traj_features[self.mask, 0] - self.traj_features[self.mask, 1]
 
     def get_traj_features(self, policy_id=None):
         """Returns traj_features corresponding to the given policy_id.
@@ -166,10 +199,6 @@ class FeatureStorageRlhf:
         policy_id = policy_id if policy_id is not None else self.policy_step - 1
         valid = (self.policy_ids == policy_id) & self.mask.unsqueeze(1)
         return self.traj_features[valid]
-
-    def get_new_design_points(self):
-        # returns design_points
-        return self.traj_features[self.mask, 0] - self.traj_features[self.mask, 1]
 
     def get_Xy(self):
         return self.X_hist[self.hist_mask], self.y_hist[self.hist_mask]

@@ -32,10 +32,11 @@ class RlhfRunner:
         # init wandb
         if wandb.run is None:
             wandb.init(
-                project="isaac_rlhf",
+                project=f"isaac_rlhf",
                 dir=self.log_dir,
                 config=cfg.to_dict(),
-                name=f"{cfg.task}_{cfg.rlhf_algorithm}_{timestamp}",
+                name=f"{cfg.rlhf_algorithm}{'_lazy' if cfg.lazy else ''}_{timestamp}",
+                group=f"{cfg.task}",
             )
         else:
             # running under a sweep agent, just update the config from sweep
@@ -50,7 +51,7 @@ class RlhfRunner:
 
         for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
-            wandb.log({"step": iter})
+            wandb.log({"Step": iter})
             # Train the RL agent
             print(
                 "[INFO]: Training RL agent with the following reward parameters:",
@@ -60,7 +61,10 @@ class RlhfRunner:
 
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
-            self.task_manager.get_preferences_and_update_rewards()
+            if self.task_manager.query_now():
+                self.task_manager.get_preferences()
+                self.task_manager.mle_update()
+            self.task_manager.sample_reward_params()
 
             # Logging
             print("[INFO]: Logging...")

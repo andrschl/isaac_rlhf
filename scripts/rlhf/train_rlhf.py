@@ -46,6 +46,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--beta", type=float, help="The beta parameter for Thompson sampling."
     )
+    parser.add_argument(
+        "--lambda_",
+        type=float,
+        help="The lambda parameter for Thompson sampling.",
+    )
+    parser.add_argument(
+        "--lazy",
+        action="store_true",
+        help="Use lazy Thompson sampling.",
+    )
+    parser.add_argument(
+        "--lazy_constant",
+        type=float,
+        help="The lazy constant for Thompson sampling.",
+    )
 
     # RL arguments
     parser.add_argument(
@@ -69,7 +84,12 @@ if __name__ == "__main__":
         choices=["rsl_rl", "rl_games", "skrl"],
         help="The RL training library to use.",
     )
-
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume training from the last checkpoint.",
+    )
+    
     # System arguments
     parser.add_argument(
         "--device", type=str, default="cuda", help="The device to run training on."

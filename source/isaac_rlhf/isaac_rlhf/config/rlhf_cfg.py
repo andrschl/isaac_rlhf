@@ -21,6 +21,9 @@ class RlhfCfg:
     num_trajectories_per_run: int = 2
     trajectory_length: int = 150
     beta: float = 1.0
+    lambda_: float = 1.0
+    lazy: bool = False
+    lazy_constant: float = 2.0
     ignored_reward_terms: list[str] = field(default_factory=lambda: [])
     # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
@@ -34,6 +37,7 @@ class RlhfCfg:
     # RL arguments
     num_rl_iterations: int = 50
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
+    resume: bool = False
 
     # System arguments
     base_seed: int = 42
