@@ -145,18 +145,14 @@ class WorkerTask:
                 self.cfg.num_features,
                 device=self.device,
             )
-            terminated = torch.zeros(
-                env.num_envs, device=self.device
-            )
+            terminated = torch.zeros(env.num_envs, device=self.device)
             episode_rewards = torch.zeros(env.num_envs, device=self.device)
             for t in range(self.cfg.trajectory_length):
                 with torch.inference_mode():
                     actions = runner.alg.policy.act(obs).detach()
                 obs, rewards, dones, _ = env.step(actions)
                 obs = runner.obs_normalizer(obs)
-                terminated = (
-                    terminated.int() | dones.int()
-                )
+                terminated = terminated.int() | dones.int()
                 step_features = einsum(
                     self.get_feature_values(),
                     (1 - terminated),
@@ -314,6 +310,10 @@ class RlhfTaskManager:
         self.cfg.gt_params = self.shared_data["gt_params"]
         self.cfg.num_features = len(self.cfg.gt_params)
         self.cfg.dt = self.shared_data["dt"]
+        self.reward_params = [
+            torch.randn(self.cfg.num_features, device="cpu")
+            for _ in range(self.cfg.num_rl_runs)
+        ]
 
     def fetch_gt_params(self, env):
         gt_params = {}
@@ -367,7 +367,7 @@ class RlhfTaskManager:
         return eigvals.cpu().real
 
     # Update and distribute rewards
-    def sample_reward_params(self, device: str = "cpu") -> list[torch.Tensor]:
+    def update_reward_params(self, device: str = "cpu") -> list[torch.Tensor]:
         """Return the reward parameters as CPU tensors."""
 
         # Run MLE
@@ -386,9 +386,16 @@ class RlhfTaskManager:
                 self.reward_params = [thetahat] * self.cfg.num_rl_runs
                 return self.reward_params
             if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
-                covariance = self.reward_model.V_inv
+                eps = 1e-6
+                cov = self.cfg.beta**2 * self.reward_model.V_inv
+                cov = cov + eps * torch.eye(
+                    cov.shape[0]
+                )  # Add small noise to covariance for numerical stability
+                print(
+                    f"[DEBUG] Is symmetric: {torch.allclose(cov, cov.T)}, is pos def: {torch.all(torch.linalg.eigvals(cov).real > 1e-8)}"
+                )
                 distribution = torch.distributions.MultivariateNormal(
-                    thetahat, covariance_matrix=covariance
+                    thetahat, covariance_matrix=cov
                 )
                 self.reward_params = [
                     distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)
@@ -422,9 +429,10 @@ class RlhfTaskManager:
         print(f"[INFO] Collected results from {len(all_results)} policies.")
         return all_results
 
-    def get_preferences(self):
+    def get_preferences_and_update_rewards(self):
         """Get synthetic preferences."""
-        return self.feature_storage.get_preferences(self.reward_model)
+        self.feature_storage.get_preferences(self.reward_model)
+        self.update_reward_params()
 
     # Save results
     def save_results(self, log_dir: str):

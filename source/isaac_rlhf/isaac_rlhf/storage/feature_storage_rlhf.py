@@ -43,9 +43,9 @@ class FeatureStorageRlhf:
             self.traj_features_prev = torch.zeros(
                 (max_ep_buffers_size, self.num_features), device=device
             )
-        self.mean_episode_reward = 0.0
-        self.mean_gt_episode_reward = 0.0
-        self.policy_ids = torch.zeros(
+        # self.mean_episode_reward = 0.0
+        # self.mean_gt_episode_reward = 0.0
+        self.policy_ids = -torch.ones(
             (max_ep_buffers_size, 2), dtype=torch.long, device=device
         )
         self.mask = torch.zeros(
@@ -68,7 +68,7 @@ class FeatureStorageRlhf:
         """Fill the storage with features from the results.
         The results are expected to be a list of dictionaries, where each dictionary contains all
         the features for a given policy in result["features"], a tensor of shape
-        [num_trajs_per_run, num_features]. 
+        [num_trajs_per_run, num_features].
         """
 
         if self.cfg.rlhf_algorithm in ["vanilla", "rl"]:
@@ -79,8 +79,8 @@ class FeatureStorageRlhf:
                 num_comparisons = self.cfg.num_trajectories_per_run // 2
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
-                    self.traj_features[buf_idx, 0] = features[2*j]
-                    self.traj_features[buf_idx, 1] = features[2*j + 1]
+                    self.traj_features[buf_idx, 0] = features[2 * j]
+                    self.traj_features[buf_idx, 1] = features[2 * j + 1]
                     self.policy_ids[buf_idx, 0] = self.policy_step
                     self.policy_ids[buf_idx, 1] = self.policy_step
                     self.mask[buf_idx] = True
@@ -92,20 +92,22 @@ class FeatureStorageRlhf:
 
             for idx in range(0, len(results)):
                 features = results[idx]["features"].to(self.device)
-                num_comparisons = self.cfg.num_trajectories_per_run // 2    # use only half of samples at time t and half at time t+1
+                num_comparisons = (
+                    self.cfg.num_trajectories_per_run // 2
+                )  # use only half of samples at time t and half at time t+1
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
-                    self.traj_features[buf_idx, 0] = features[2*j]
+                    self.traj_features[buf_idx, 0] = features[2 * j]
                     self.policy_ids[buf_idx, 0] = self.policy_step
                     if self.step == 0 and self.policy_step == 0:
                         # Compare to trajectories from the same policy
-                        self.traj_features[buf_idx, 1] = features[2*j + 1]
+                        self.traj_features[buf_idx, 1] = features[2 * j + 1]
                         self.policy_ids[buf_idx, 1] = self.policy_step
                     else:
                         # Compare to trajectories from the previous policy
                         self.traj_features[buf_idx, 1] = self.traj_features_prev[j]
                         self.policy_ids[buf_idx, 1] = self.policy_step - 1
-                    self.traj_features_prev[j] = features[2*j + 1]
+                    self.traj_features_prev[j] = features[2 * j + 1]
                     self.mask[buf_idx] = True
                     self.step += 1
                 self.policy_step += 1
@@ -141,10 +143,13 @@ class FeatureStorageRlhf:
 
     def get_preferences(self, reward_model: "LinearReward"):
         # collect only the valid design‐points
-        X_new = self.get_design_points()  # [N, num_features]
+        X_new = self.get_new_design_points()  # [N, num_features]
         utilities = reward_model.get_gt_reward(X_new)  # [N]
         probs = torch.sigmoid(utilities)  # P(prefer first over second)
         y_new = torch.bernoulli(probs).long()  # [N]
+        print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
+
+        self.clear()
 
         # store and return new data points
         for i in range(X_new.size(0)):
@@ -162,7 +167,7 @@ class FeatureStorageRlhf:
         valid = (self.policy_ids == policy_id) & self.mask.unsqueeze(1)
         return self.traj_features[valid]
 
-    def get_design_points(self):
+    def get_new_design_points(self):
         # returns design_points
         return self.traj_features[self.mask, 0] - self.traj_features[self.mask, 1]
 
@@ -201,18 +206,10 @@ class FeatureStorageRlhf:
         print(f"Saved preference data to {csv_path}")
 
     def clear(self):
-        self.traj_features = torch.zeros(
-            (self.max_ep_buffers_size, self.num_features), device=self.device
-        )
-        self.policy_ids = torch.zeros(
-            (self.max_ep_buffers_size,), dtype=torch.long, device=self.device
-        )
-        self.mask = torch.zeros(
-            (self.max_ep_buffers_size,), dtype=torch.bool, device=self.device
-        )
+        self.traj_features[:] = 0.0
+        self.policy_ids[:] = -1
+        self.mask[:] = False
         self.step = 0
-
-
 
 
 # """Under development. Do not use yet."""

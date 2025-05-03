@@ -20,6 +20,7 @@ class RlhfCfg:
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 2
     trajectory_length: int = 150
+    beta: float = 1.0
     ignored_reward_terms: list[str] = field(default_factory=lambda: [])
     # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 

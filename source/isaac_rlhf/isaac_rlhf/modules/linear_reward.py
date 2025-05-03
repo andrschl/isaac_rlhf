@@ -30,10 +30,10 @@ class LinearReward(nn.Module):
         self.gt_params = gt_params.to("cpu") if gt_params is not None else None
         self.device = device
         self.step = 0
-        
+
     def get_reward_params(self):
         return self.reward.weight.data.view(-1).clone().cpu()
-    
+
     def get_reward(self, features):
         return self.reward(features).squeeze(1)
 
@@ -44,7 +44,7 @@ class LinearReward(nn.Module):
 
     def update_curr_V(self, feature_storage: FeatureStorageRlhf):
         # design_points: [num_samples, num_features]
-        design_points = feature_storage.get_design_points()
+        design_points = feature_storage.get_new_design_points()
         for feature in design_points:
             self.curr_V += torch.outer(feature, feature)
         self.curr_V_inv = torch.linalg.inv(self.curr_V)
@@ -52,7 +52,9 @@ class LinearReward(nn.Module):
     def update_V(self, feature_storage: FeatureStorageRlhf):
         # design_points: [num_samples, num_features]
         self.V = self.curr_V.clone()
+        self.V = (self.V + self.V.T) / 2  # symmetrize for numerical stability
         self.V_inv = self.curr_V_inv.clone()
+        self.V_inv = (self.V_inv + self.V_inv) / 2  # symmetrize for numerical stability
 
     def update_reward_and_confidence_set(
         self,

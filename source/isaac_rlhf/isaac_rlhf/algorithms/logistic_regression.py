@@ -48,6 +48,7 @@ def train_reward_model(
     # load full dataset
     dataset = PreferenceDataset(feature_storage)
     N = len(dataset)
+    print(f"[DEBUG] Dataset size: {N}")
     if N == 0:
         warnings.warn("No preference data; returning initial reward parameters.")
         return reward_model.reward.weight.data.view(-1).clone()

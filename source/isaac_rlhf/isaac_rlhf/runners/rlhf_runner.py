@@ -51,27 +51,26 @@ class RlhfRunner:
         for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
 
-            # Update reward function
-            print("[INFO]: Updating the reward function...")
-            reward_params = self.task_manager.sample_reward_params()
-
             # Train the RL agent
             print(
                 "[INFO]: Training RL agent with the following reward parameters:",
-                reward_params,
+                self.task_manager.reward_params,
             )
             results = self.task_manager.distribute_rewards()
 
-            # Observe feedback
-            print("[INFO]: Observing preference feedback...")
-            self.task_manager.get_preferences()
+            # Observe feedback and update reward
+            print("[INFO]: Observing preference feedback and update reward...")
+            self.task_manager.get_preferences_and_update_rewards()
 
             # Logging
             print("[INFO]: Logging...")
             logdict_wandb = {
                 "gt_reward": self.task_manager.get_gt_reward(results),
-                "pred_reward": self.task_manager.get_pred_reward(results), 
-                "pred_reward_debug": sum([result["mean_episode_reward"] for result in results]) / len(results),
+                "pred_reward": self.task_manager.get_pred_reward(results),
+                "pred_reward_debug": sum(
+                    [result["mean_episode_reward"] for result in results]
+                )
+                / len(results),
                 "reward_error": self.task_manager.get_reward_error(),
                 "lambda_max(V_inv)": self.task_manager.get_V_inv_eigenvalues()
                 .max()
@@ -81,7 +80,7 @@ class RlhfRunner:
                 .item(),
             }
             logdict_console = logdict_wandb.copy()
-            logdict_console["reward_params"] = reward_params
+            logdict_console["reward_params"] = self.task_manager.reward_params
             logdict_console["reward_params_gt"] = (
                 self.task_manager.gt_params_as_tensor()
             )

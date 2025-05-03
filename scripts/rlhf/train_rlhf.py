@@ -43,6 +43,9 @@ if __name__ == "__main__":
         choices=["vanilla", "ts_double", "ts_last", "rl"],
         help="The RLHF algorithm to use.",
     )
+    parser.add_argument(
+        "--beta", type=float, help="The beta parameter for Thompson sampling."
+    )
 
     # RL arguments
     parser.add_argument(
