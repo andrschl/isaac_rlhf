@@ -50,7 +50,7 @@ class RlhfRunner:
 
         for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
-
+            wandb.log({"step": iter})
             # Train the RL agent
             print(
                 "[INFO]: Training RL agent with the following reward parameters:",
@@ -65,17 +65,17 @@ class RlhfRunner:
             # Logging
             print("[INFO]: Logging...")
             logdict_wandb = {
-                "gt_reward": self.task_manager.get_gt_reward(results),
-                "pred_reward": self.task_manager.get_pred_reward(results),
-                "pred_reward_debug": sum(
+                "rlhf/gt_reward": self.task_manager.get_gt_reward(results),
+                "rlhf/pred_reward": self.task_manager.get_pred_reward(results),
+                "rlhf/pred_reward_debug": sum(
                     [result["mean_episode_reward"] for result in results]
                 )
                 / len(results),
-                "reward_error": self.task_manager.get_reward_error(),
-                "lambda_max(V_inv)": self.task_manager.get_V_inv_eigenvalues()
+                "rlhf/reward_error": self.task_manager.get_reward_error(),
+                "rlhf/lambda_max(V_inv)": self.task_manager.get_V_inv_eigenvalues()
                 .max()
                 .item(),
-                "lambda_min(V_inv)": self.task_manager.get_V_inv_eigenvalues()
+                "rlhf/lambda_min(V_inv)": self.task_manager.get_V_inv_eigenvalues()
                 .min()
                 .item(),
             }
@@ -90,13 +90,18 @@ class RlhfRunner:
 
         print("[INFO]: RLHF training completed.")
         self.task_manager.close()
+        wandb.finish()
 
     def logging_step(self, logdict_wandb, logdict_console, step):
         """Log and print the results."""
         print(f"{'#' * 20} RLHF step {step} {'#' * 20}")
         for key, value in logdict_console.items():
             print(f"{key}: {value}")
-        self.writer.log(logdict_wandb, step=step)
+        print(
+            "[DEBUG] "
+            + ", ".join([f"{key}: {value}" for key, value in logdict_wandb.items()])
+        )
+        wandb.log(logdict_wandb)
 
     def save_final_results(self):
         """Save the final results."""
