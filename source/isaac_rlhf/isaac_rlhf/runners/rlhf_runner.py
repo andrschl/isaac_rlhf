@@ -48,10 +48,9 @@ class RlhfRunner:
         """
         Run the RLHF training loop.
         """
-
+        lazy_update_count = 0
         for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
-            wandb.log({"Step": iter})
             # Train the RL agent
             print(
                 "[INFO]: Training RL agent with the following reward parameters:",
@@ -63,7 +62,8 @@ class RlhfRunner:
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
                 self.task_manager.get_preferences()
-                self.task_manager.mle_update()
+                self.task_manager.mle_update(iter=iter)
+                lazy_update_count += 1
             self.task_manager.sample_reward_params()
 
             # Logging
@@ -82,6 +82,7 @@ class RlhfRunner:
                 "rlhf/lambda_min(V_inv)": self.task_manager.get_V_inv_eigenvalues()
                 .min()
                 .item(),
+                "rlhf/lazy_update_count": lazy_update_count,
             }
             logdict_console = logdict_wandb.copy()
             logdict_console["reward_params"] = self.task_manager.reward_params
@@ -105,7 +106,7 @@ class RlhfRunner:
             "[DEBUG] "
             + ", ".join([f"{key}: {value}" for key, value in logdict_wandb.items()])
         )
-        wandb.log(logdict_wandb)
+        wandb.log(logdict_wandb, step=step)
 
     def save_final_results(self):
         """Save the final results."""

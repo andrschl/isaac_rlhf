@@ -35,9 +35,11 @@ class LinearReward(nn.Module):
         return self.reward.weight.data.view(-1).clone().cpu()
 
     def get_reward(self, features):
+        features = features.to(self.device)
         return self.reward(features).squeeze(1)
 
     def get_gt_reward(self, features):
+        features = features.to(self.device)
         if self.gt_params is None:
             raise ValueError("Ground truth parameters are not set.")
         return torch.tensordot(features, self.gt_params, dims=([-1], [0])).to("cpu")

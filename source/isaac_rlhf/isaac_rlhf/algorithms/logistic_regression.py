@@ -36,6 +36,7 @@ def train_reward_model(
     epochs: int = 500,
     batch_size: int = 64,
     test_split: float = 0.2,
+    iter=None,
     num_workers: int = 0,
     device: str = "cpu",
 ) -> torch.Tensor:
@@ -126,7 +127,8 @@ def train_reward_model(
             "mle/l2": l2.item(),
             "mle/train_accuracy": train_acc,
             "mle/test_accuracy": test_acc,
-        }
+        },
+        step=iter,
     )
 
     return reward_model.reward.weight.data.view(-1).clone()

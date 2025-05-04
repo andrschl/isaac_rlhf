@@ -116,8 +116,14 @@ class WorkerTask:
 
             # Load from previous checkpoint if available and not the first iteration
             prev_checkpoint_path = getattr(self, "prev_checkpoint_path", None)
-            if self.cfg.resume and prev_checkpoint_path and os.path.exists(prev_checkpoint_path):
-                print(f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}")
+            if (
+                self.cfg.resume
+                and prev_checkpoint_path
+                and os.path.exists(prev_checkpoint_path)
+            ):
+                print(
+                    f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}"
+                )
                 runner.load(prev_checkpoint_path)
 
             runner.learn(
@@ -126,7 +132,9 @@ class WorkerTask:
             )
 
             # Save the checkpoint for the next iteration
-            final_checkpoint_path = os.path.join(log_dir, f"model_{agent_cfg.max_iterations}.pt")
+            final_checkpoint_path = os.path.join(
+                log_dir, f"model_{agent_cfg.max_iterations}.pt"
+            )
             self.prev_checkpoint_path = final_checkpoint_path
 
             traj_features, mean_episode_reward = self.record_features(runner, env)
@@ -334,13 +342,13 @@ class RlhfTaskManager:
             num_features=self.cfg.num_features,
             lambda_=1.0,
             gt_params=self.gt_params_as_tensor(),
-            device=self.device,
         )
 
     # Helpers for logging
     def get_gt_reward(self, results):
         """Compute approx. ground truth reward."""
         traj_features = sum([result["features"] for result in results]) / len(results)
+        traj_features = traj_features.to(self.device)
         gt_reward = self.reward_model.get_gt_reward(traj_features).mean().item()
         return gt_reward
 
@@ -381,13 +389,12 @@ class RlhfTaskManager:
         self.feature_storage.fill_storage(all_results)
         print(f"[INFO] Collected results from {len(all_results)} policies.")
         return all_results
-    
+
     def get_preferences(self):
         """Get synthetic preferences."""
         self.feature_storage.get_preferences(self.reward_model)
 
-    def mle_update(self):
-
+    def mle_update(self, iter=None):
         from isaac_rlhf.algorithms import train_reward_model
 
         return train_reward_model(
@@ -396,7 +403,8 @@ class RlhfTaskManager:
             lr=self.cfg.mle_lr,
             l2_reg=self.cfg.mle_l2_reg,
             epochs=self.cfg.mle_epochs,
-            batch_size=self.cfg.mle_batch_size
+            batch_size=self.cfg.mle_batch_size,
+            iter=iter,
         )
 
     def sample_reward_params(self) -> list[torch.Tensor]:
@@ -437,7 +445,7 @@ class RlhfTaskManager:
         if self.cfg.lazy:
             det_curr_V = torch.det(self.feature_storage.curr_V)
             det_V = torch.det(self.feature_storage.V)
-            return det_curr_V >= self.cfg.lazy_constant * det_V 
+            return det_curr_V >= self.cfg.lazy_constant * det_V
         else:
             return True
 
