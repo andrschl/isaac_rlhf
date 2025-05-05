@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from typing import Literal
 from einops import einsum
+import math
 
 from isaac_rlhf.config import RlhfCfg
 from isaac_rlhf.utils.rlhf_utils import MuteOutput, get_freest_gpu
@@ -392,7 +393,7 @@ class RlhfTaskManager:
 
     def get_preferences(self):
         """Get synthetic preferences."""
-        self.feature_storage.get_preferences(self.reward_model)
+        return self.feature_storage.get_preferences(self.reward_model)
 
     def mle_update(self, iter=None):
         from isaac_rlhf.algorithms import train_reward_model
@@ -407,7 +408,7 @@ class RlhfTaskManager:
             iter=iter,
         )
 
-    def sample_reward_params(self) -> list[torch.Tensor]:
+    def sample_reward_params(self, iter=0) -> list[torch.Tensor]:
         """Return the reward parameters as CPU tensors."""
 
         # Return updated reward params
@@ -418,7 +419,8 @@ class RlhfTaskManager:
                 return self.reward_params
             if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
                 eps = 1e-6
-                cov = self.cfg.beta**2 * self.feature_storage.V_inv
+                beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
+                cov = beta**2 * self.feature_storage.V_inv
                 cov = cov + eps * torch.eye(
                     cov.shape[0]
                 )  # Add small noise to covariance for numerical stability

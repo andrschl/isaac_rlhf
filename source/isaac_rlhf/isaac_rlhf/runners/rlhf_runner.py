@@ -4,6 +4,7 @@
 
 import datetime
 import numpy as np
+import pandas as pd
 import os
 import wandb
 from typing import Literal, Optional
@@ -27,8 +28,49 @@ class RlhfRunner:
 
         # Logging
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.log_dir = os.path.join("logs", "rlhf", cfg.task, timestamp)
-        os.makedirs(self.log_dir)
+        # self.log_dir = os.path.join("logs", "rlhf", cfg.task, timestamp)
+        if cfg.rlhf_algorithm == "ts_last":
+            if cfg.lazy:
+                if cfg.opt_design:
+                    self.log_dir = os.path.join(
+                        "logs",
+                        "rlhf",
+                        cfg.task,
+                        cfg.rlhf_algorithm + "_lazy_opt_design",
+                        f"beta1_{cfg.beta1}",
+                        f"beta2_{cfg.beta2}",
+                        f"seed_{cfg.base_seed}",
+                    )
+                else:
+                    self.log_dir = os.path.join(
+                        "logs",
+                        "rlhf",
+                        cfg.task,
+                        cfg.rlhf_algorithm + "_lazy",
+                        f"beta1_{cfg.beta1}",
+                        f"beta2_{cfg.beta2}",
+                        f"seed_{cfg.base_seed}",
+                    )
+            else:
+                self.log_dir = os.path.join(
+                    "logs",
+                    "rlhf",
+                    cfg.task,
+                    cfg.rlhf_algorithm,
+                    f"beta1_{cfg.beta1}",
+                    f"beta2_{cfg.beta2}",
+                    f"seed_{cfg.base_seed}",
+                )
+        elif cfg.rlhf_algorithm == "vanilla":
+            self.log_dir = os.path.join(
+                "logs", "rlhf", cfg.task, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
+            )
+        elif cfg.rlhf_algorithm == "rl":
+            self.log_dir = os.path.join(
+                "logs", "rlhf", cfg.task, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
+            )
+
+        os.makedirs(self.log_dir, exist_ok=True)
         # init wandb
         if wandb.run is None:
             wandb.init(
@@ -42,6 +84,7 @@ class RlhfRunner:
             # running under a sweep agent, just update the config from sweep
             wandb.config.update(cfg.to_dict(), allow_val_change=True)
         self.writer = wandb
+        self.log_history: dict[str, list] = {}
         print("[INFO]: RLHF Task Manager setup complete.")
 
     def run(self):
@@ -49,6 +92,7 @@ class RlhfRunner:
         Run the RLHF training loop.
         """
         lazy_update_count = 0
+        query_count = 0
         for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
             # Train the RL agent
@@ -61,7 +105,8 @@ class RlhfRunner:
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
-                self.task_manager.get_preferences()
+                _, y_new = self.task_manager.get_preferences()
+                query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
             self.task_manager.sample_reward_params()
@@ -83,6 +128,7 @@ class RlhfRunner:
                 .min()
                 .item(),
                 "rlhf/lazy_update_count": lazy_update_count,
+                "rlhf/num_queries": query_count,
             }
             logdict_console = logdict_wandb.copy()
             logdict_console["reward_params"] = self.task_manager.reward_params
@@ -106,9 +152,16 @@ class RlhfRunner:
             "[DEBUG] "
             + ", ".join([f"{key}: {value}" for key, value in logdict_wandb.items()])
         )
+        # append into your buffers
+        for k, v in logdict_wandb.items():
+            self.log_history.setdefault(k, []).append(v)
+        self.log_history.setdefault("step", []).append(step)
         wandb.log(logdict_wandb, step=step)
 
     def save_final_results(self):
         """Save the final results."""
+        df = pd.DataFrame(self.log_history)
+        csv_path = os.path.join(self.log_dir, "logs.csv")
+        df.to_csv(csv_path, index=False)
         self.task_manager.save_results(self.log_dir)
         print(f"[INFO]: Final results saved to {self.log_dir}")

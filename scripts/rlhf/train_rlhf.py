@@ -44,7 +44,10 @@ if __name__ == "__main__":
         help="The RLHF algorithm to use.",
     )
     parser.add_argument(
-        "--beta", type=float, help="The beta parameter for Thompson sampling."
+        "--beta1", type=float, help="The beta parameter for Thompson sampling."
+    )
+    parser.add_argument(
+        "--beta2", type=float, help="The beta parameter for Thompson sampling."
     )
     parser.add_argument(
         "--lambda_",
@@ -60,6 +63,11 @@ if __name__ == "__main__":
         "--lazy_constant",
         type=float,
         help="The lazy constant for Thompson sampling.",
+    )
+    parser.add_argument(
+        "--opt_design",
+        action="store_true",
+        help="Use optimal design for Thompson sampling.",
     )
 
     # RL arguments
@@ -89,7 +97,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Resume training from the last checkpoint.",
     )
-    
+
     # System arguments
     parser.add_argument(
         "--device", type=str, default="cuda", help="The device to run training on."
