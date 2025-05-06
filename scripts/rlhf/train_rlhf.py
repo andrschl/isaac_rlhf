@@ -19,6 +19,10 @@ def main(args_cli):
 
     rlhf.run()
 
+    import torch
+
+    torch.cuda.empty_cache()
+
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)

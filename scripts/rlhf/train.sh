@@ -7,9 +7,9 @@ source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate env_isaaclab
 
 # TS loop
-SEEDS=$(seq 1 10)
-BETA1S=(0.1 1.0)
-BETA2S=(0.1 1.0)
+SEEDS=$(seq 1 3)
+BETA1S=(1.0)
+BETA2S=(1.0)
 for seed in ${SEEDS}; do
   for beta1 in "${BETA1S[@]}"; do
     for beta2 in "${BETA2S[@]}"; do
@@ -22,8 +22,8 @@ for seed in ${SEEDS}; do
         --rlhf_algorithm ts_last
 
       # force-kill any stray Python processes
-      echo ">>> Killing leftover Python processes..."
-      pkill -9 python || true
+      # echo ">>> Killing leftover Python processes..."
+      # pkill -9 python || true
 
       # sleep a bit before next run
       echo ">>> Sleeping for 10s before next run..."
@@ -39,8 +39,8 @@ for seed in ${SEEDS}; do
         --opt_design
 
       # force-kill any stray Python processes
-      echo ">>> Killing leftover Python processes..."
-      pkill -9 python || true
+      # echo ">>> Killing leftover Python processes..."
+      # pkill -9 python || true
 
       # sleep a bit before next run
       echo ">>> Sleeping for 10s before next run..."
@@ -55,11 +55,12 @@ for seed in ${SEEDS}; do
         --lazy \
 
       # force-kill any stray Python processes
-      echo ">>> Killing leftover Python processes..."
-      pkill -9 python || true
+      # echo ">>> Killing leftover Python processes..."
+      # pkill -9 python || true
 
       # sleep a bit before next run
       echo ">>> Sleeping for 10s before next run..."
+      pkill -f train_rlhf.py || true
       sleep 10
 
 
@@ -76,11 +77,12 @@ for seed in ${SEEDS}; do
     --rlhf_algorithm vanilla
 
   # force‑kill any stray Python processes and give the system a breather
-  echo ">>> Killing leftover python processes..."
-  pkill -9 python || true
+  # echo ">>> Killing leftover python processes..."
+  # pkill -9 python || true
 
   # sleep a bit before next run
   echo ">>> Sleeping for 10s before next run..."
+  pkill -f train_rlhf.py || true
   sleep 10
 done
 
@@ -92,11 +94,12 @@ for seed in ${SEEDS}; do
     --rlhf_algorithm rl
 
   # force‑kill any stray Python processes and give the system a breather
-  echo ">>> Killing leftover python processes..."
-  pkill -9 python || true
+  # echo ">>> Killing leftover python processes..."
+  # pkill -9 python || true
 
   # sleep a bit before next run
   echo ">>> Sleeping for 10s before next run..."
+  pkill -f train_rlhf.py || true
   sleep 10
 done
 
