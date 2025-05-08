@@ -29,13 +29,15 @@ class RlhfRunner:
         # Logging
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         # self.log_dir = os.path.join("logs", "rlhf", cfg.task, timestamp)
+        if cfg.resume:
+            base_dir = os.path.join("logs", "rlhf", cfg.task, "resume")
+        else:
+            base_dir = os.path.join("logs", "rlhf", cfg.task)
         if cfg.rlhf_algorithm == "ts_last":
             if cfg.lazy:
                 if cfg.opt_design:
                     self.log_dir = os.path.join(
-                        "logs",
-                        "rlhf",
-                        cfg.task,
+                        base_dir,
                         cfg.rlhf_algorithm + "_lazy_opt_design",
                         f"beta1_{cfg.beta1}",
                         f"beta2_{cfg.beta2}",
@@ -43,9 +45,7 @@ class RlhfRunner:
                     )
                 else:
                     self.log_dir = os.path.join(
-                        "logs",
-                        "rlhf",
-                        cfg.task,
+                        base_dir,
                         cfg.rlhf_algorithm + "_lazy",
                         f"beta1_{cfg.beta1}",
                         f"beta2_{cfg.beta2}",
@@ -53,9 +53,7 @@ class RlhfRunner:
                     )
             else:
                 self.log_dir = os.path.join(
-                    "logs",
-                    "rlhf",
-                    cfg.task,
+                    base_dir,
                     cfg.rlhf_algorithm,
                     f"beta1_{cfg.beta1}",
                     f"beta2_{cfg.beta2}",
@@ -63,11 +61,11 @@ class RlhfRunner:
                 )
         elif cfg.rlhf_algorithm == "vanilla":
             self.log_dir = os.path.join(
-                "logs", "rlhf", cfg.task, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
+                base_dir, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
             )
         elif cfg.rlhf_algorithm == "rl":
             self.log_dir = os.path.join(
-                "logs", "rlhf", cfg.task, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
+                base_dir, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
             )
 
         os.makedirs(self.log_dir, exist_ok=True)

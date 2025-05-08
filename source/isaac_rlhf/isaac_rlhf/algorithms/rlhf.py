@@ -307,7 +307,7 @@ class RlhfTaskManager:
         self.shared_data["dt"] = env.unwrapped.step_dt
 
         env.close()
-        time.sleep(10)  # Give some time for the process to close properly
+        time.sleep(15)  # Give some time for the process to close properly
         simulation_app.close()
 
     def init_from_shared_data(self):

@@ -73,6 +73,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Use optimal design for Thompson sampling.",
     )
+    parser.add_argument(
+        "--mle_l2_reg",
+        type=float,
+        help="The L2 regularization parameter for MLE.",
+    )
 
     # RL arguments
     parser.add_argument(
