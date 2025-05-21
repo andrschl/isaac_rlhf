@@ -107,7 +107,6 @@ class RlhfRunner:
                 query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
-            self.task_manager.sample_reward_params()
 
             # Logging
             print("[INFO]: Logging...")
@@ -134,6 +133,9 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
+
+            # Sample new reward parameters
+            self.task_manager.sample_reward_params()
 
         self.save_final_results()
 

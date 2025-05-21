@@ -86,7 +86,10 @@ class WorkerTask:
 
     def rl_training(self):
         """Run training for the environment. Return features and a log directory."""
-        from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+        from isaaclab_tasks.utils.parse_cfg import (
+            load_cfg_from_registry,
+            get_checkpoint_path,
+        )
 
         if self.cfg.rl_library == "rsl_rl":
             from rsl_rl.runners import OnPolicyRunner
@@ -105,10 +108,10 @@ class WorkerTask:
             log_root_path = os.path.abspath(log_root_path)
             print(f"[INFO] Logging experiment in directory: {log_root_path}")
             # specify directory for logging runs: {time-stamp}_{run_name}
-            log_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_Run-{self.idx}"
+            run_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_Run-{self.idx}"
             if agent_cfg.run_name:
-                log_dir += f"_{agent_cfg.run_name}"
-            log_dir = os.path.join(log_root_path, log_dir)
+                run_dir += f"_{agent_cfg.run_name}"
+            log_dir = os.path.join(log_root_path, run_dir)
 
             env = RslRlVecEnvWrapper(self.env)
             runner = OnPolicyRunner(
@@ -117,13 +120,20 @@ class WorkerTask:
 
             # Load from previous checkpoint if available and not the first iteration
             prev_checkpoint_path = getattr(self, "prev_checkpoint_path", None)
+            print(
+                f"[DEBUG] Resume is {self.cfg.resume}, prev_checkpoint_path: {prev_checkpoint_path}, prev_checkpoint_path exists: {os.path.exists(prev_checkpoint_path) if prev_checkpoint_path else 'N/A'}"
+            )
+            # Check if the previous checkpoint exists
             if (
                 self.cfg.resume
                 and prev_checkpoint_path
                 and os.path.exists(prev_checkpoint_path)
             ):
+                print(f"[DEBUG] Loading previous checkpoint.")
                 print(
-                    f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}"
+                    "[DEBUG] Previous checkpoint path: ",
+                    f"{prev_checkpoint_path}, exists: {os.path.exists(prev_checkpoint_path)}",
+                    f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}",
                 )
                 runner.load(prev_checkpoint_path)
 
@@ -133,10 +143,9 @@ class WorkerTask:
             )
 
             # Save the checkpoint for the next iteration
-            final_checkpoint_path = os.path.join(
-                log_dir, f"model_{agent_cfg.max_iterations}.pt"
+            self.prev_checkpoint_path = get_checkpoint_path(
+                log_root_path, run_dir, "model_*"
             )
-            self.prev_checkpoint_path = final_checkpoint_path
 
             traj_features, mean_episode_reward = self.record_features(runner, env)
             return traj_features, mean_episode_reward, log_dir
@@ -358,6 +367,7 @@ class RlhfTaskManager:
 
     def get_pred_reward(self, results):
         """Compute approx. predicted reward."""
+        print(f"[DEBUG] Predicted reward params: {results[0]['features'].shape}")
         traj_features = sum([result["features"] for result in results]) / len(results)
         pred_reward = self.reward_model.get_reward(traj_features).mean().item()
         return pred_reward
