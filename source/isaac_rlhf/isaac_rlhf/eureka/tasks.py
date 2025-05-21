@@ -1,0 +1,50 @@
+TASKS_CFG = {
+    "Isaac-Cartpole-Direct-v0": {
+        "description": "balance a pole on a cart so that the pole stays upright",
+        "success_metric": "self.episode_length_buf[env_ids].float().mean() / self.max_episode_length",
+        "success_metric_to_win": 1.0,
+        "success_metric_tolerance": 0.01,
+    },
+    "Isaac-Cartpole-v0": {
+        "description": "balance a pole on a cart so that the pole stays upright",
+        "success_metric": "self.episode_length_buf[env_ids].float().mean() / self.max_episode_length",
+        "success_metric_to_win": 1.0,
+        "success_metric_tolerance": 0.01,
+    },
+    "Isaac-Quadcopter-Direct-v0": {
+        "description": (
+            "bring the quadcopter to the target position: self._desired_pos_w, while making sure it flies smoothly"
+        ),
+        "success_metric": (
+            "torch.linalg.norm(self._desired_pos_w[env_ids] - self._robot.data.root_pos_w[env_ids], dim=1).mean()"
+        ),
+        "success_metric_to_win": 0.0,
+        "success_metric_tolerance": 0.2,
+    },
+    "Isaac-Factory-NutThread-Direct-v0": {
+        "description": "thread a nut onto a bolt",
+        "success_metric": ("(torch.logical_and(torch.linalg.vector_norm(self.target_held_base_pos[:, :2] - self.held_base_pos[:, :2], dim=1) < 0.0025,(self.held_base_pos[:, 2] - self.target_held_base_pos[:, 2]) < (self.cfg_task.fixed_asset_cfg.thread_pitch * 0.375)).float().mean())"
+        ),
+        "success_metric_to_win": 0.4,
+        "success_metric_tolerance": 0.1,
+    },
+    "Isaac-Open-Drawer-Franka-v0": {
+        "description": "Franka arm approaches drawer handle, grasps it, and opens the drawer",
+        "success_metric": "self.scene.articulations['cabinet'].data.joint_pos[env_ids].float().mean()",
+        "success_metric_to_win": 0.4,
+        "success_metric_tolerance": 0.1,
+    },
+    "SBTC-Lift-Cube-Franka-OSC-v0":{
+        "description": "Use Franka arm to lift an object and bring it to a target position in air.",
+        "success_metric": "0",
+        "success_metric_to_win": 1, # now success metric is independent of reward weights!
+        "success_metric_tolerance": 0.001,
+    },
+        "SBTC-Unscrew-Franka-OSC-v0":{
+        "description": "Use Franka arm to approach a screw, engage and unscrew it.",
+        "success_metric": "0",
+        "success_metric_to_win":1,
+        "success_metric_tolerance": 0.001,
+    },
+
+}

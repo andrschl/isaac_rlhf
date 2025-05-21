@@ -186,13 +186,17 @@ class WorkerTask:
                 obs, rewards, dones, _ = env.step(actions)
                 obs = runner.obs_normalizer(obs)
                 terminated = terminated.int() | dones.int()
+                # print(
+                #     f"[DEBUG] Worker {self.idx} step {t}: rewards: {torch.mean(rewards)}, <theta, phi>: {self.cfg.dt * torch.mean(einsum(self.get_feature_values().cpu(), torch.tensor(self.reward_param).cpu(), 'i j, j -> i')).item()}"
+                # )
                 step_features = einsum(
                     self.get_feature_values(),
                     (1 - terminated),
                     "i j, i -> i j",
                 )
+                step_rewards = rewards * (1 - terminated)
                 traj_features += gamma**t * step_features * self.cfg.dt
-                episode_rewards += gamma**t * rewards
+                episode_rewards += gamma**t * step_rewards
 
             return traj_features, episode_rewards.mean().item()
 
@@ -217,12 +221,12 @@ class WorkerTask:
 
         print(f"[INFO]: Worker {self.idx} started.")
         while not self.termination_event.is_set():
-            reward_param = self.rewards_queue.get()
-            if reward_param == "Stop":
+            self.reward_param = self.rewards_queue.get()
+            if self.reward_param == "Stop":
                 break
 
             try:
-                self.prepare_rlhf_environment(reward_param)
+                self.prepare_rlhf_environment(self.reward_param)
                 # Only display output for worker 0; others can be muted
                 context = nullcontext() if self.idx == 0 else MuteOutput()
                 with context:
@@ -367,8 +371,9 @@ class RlhfTaskManager:
 
     def get_pred_reward(self, results):
         """Compute approx. predicted reward."""
-        print(f"[DEBUG] Predicted reward params: {results[0]['features'].shape}")
+        print(f"[DEBUG] Predicted reward features: {results[0]['features'].shape}")
         traj_features = sum([result["features"] for result in results]) / len(results)
+        print(traj_features)
         pred_reward = self.reward_model.get_reward(traj_features).mean().item()
         return pred_reward
 
@@ -382,6 +387,20 @@ class RlhfTaskManager:
         """Compute the eigenvalues of the covariance matrix."""
         eigvals, _ = torch.linalg.eig(self.feature_storage.V_inv)
         return eigvals.cpu().real
+
+    def check_results(self, results):
+        """
+        Check the results for debugging purposes
+        """
+        for idx, result in enumerate(results):
+            features = result["features"]
+            mean_episode_reward = result["mean_episode_reward"]
+            param = torch.tensor(self.reward_params[idx])
+            print(f"[DEBUG] Worker {idx} results:")
+            print(
+                torch.mean(einsum(features, param, "i j, j -> i")).item(),
+                mean_episode_reward,
+            )
 
     # Core methods
     def distribute_rewards(self) -> list[dict]:
@@ -426,6 +445,9 @@ class RlhfTaskManager:
         if self.feature_storage.update_params:
             if self.cfg.rlhf_algorithm == "vanilla":
                 self.reward_params = [thetahat] * self.cfg.num_rl_runs
+                print(
+                    f"[DEBUG] Using vanilla RLHF with reward parameters: {self.reward_params}"
+                )
                 return self.reward_params
             if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
                 eps = 1e-6

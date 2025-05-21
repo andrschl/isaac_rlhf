@@ -81,7 +81,7 @@ class FeatureStorageRlhf:
             # vanilla: rely only on entropy exploration
 
             for idx in range(0, len(results)):
-                features = results[idx]["features"].to(self.device)
+                features = results[idx]["features"].to(self.device)     # [num_envs, num_features]
                 num_comparisons = self.cfg.num_trajectories_per_run // 2
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
@@ -170,7 +170,7 @@ class FeatureStorageRlhf:
         utilities = reward_model.get_gt_reward(X_new)  # [N]
         probs = torch.sigmoid(utilities)  # P(prefer first over second)
         y_new = torch.bernoulli(probs).long()  # [N]
-        print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
+        # print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
         self.update_V()
 
         # store and return new data points
@@ -184,6 +184,13 @@ class FeatureStorageRlhf:
         self.clear()
 
         return X_new, y_new
+    #TODO
+    def get_llm_preferences(self, reward_model: "LinearReward"):
+        pass
+
+    #TODO
+    def get_success_metric_preferences(self, reward_model: "LinearReward"): 
+        pass
 
     def update_V(self, X_new=None):
         # design_points: [num_samples, num_features]    TODO: Add functionality for different settings here.

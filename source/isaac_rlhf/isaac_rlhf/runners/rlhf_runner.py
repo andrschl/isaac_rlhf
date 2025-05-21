@@ -108,7 +108,11 @@ class RlhfRunner:
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
 
+            # Sample new reward parameters
+            self.task_manager.sample_reward_params()
+
             # Logging
+            self.task_manager.check_results(results)
             print("[INFO]: Logging...")
             logdict_wandb = {
                 "rlhf/gt_reward": self.task_manager.get_gt_reward(results),
@@ -134,8 +138,6 @@ class RlhfRunner:
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
 
-            # Sample new reward parameters
-            self.task_manager.sample_reward_params()
 
         self.save_final_results()
 

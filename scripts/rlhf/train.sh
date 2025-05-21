@@ -7,9 +7,9 @@ source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate env_isaaclab
 
 # TS loop
-SEEDS=$(seq 1 10)
-BETA1S=(1.0)
-BETA2S=(1.0)
+SEEDS=$(seq 8 10)
+BETA1S=(1e-2)
+BETA2S=(1e2)
 for seed in ${SEEDS}; do
   for beta1 in "${BETA1S[@]}"; do
     for beta2 in "${BETA2S[@]}"; do
@@ -19,7 +19,8 @@ for seed in ${SEEDS}; do
         --base_seed ${seed} \
         --beta1 ${beta1} \
         --beta2 ${beta2} \
-        --rlhf_algorithm ts_last 
+        --rlhf_algorithm ts_last \
+        --resume
 
       # force-kill any stray Python processes
       # echo ">>> Killing leftover Python processes..."
@@ -36,7 +37,8 @@ for seed in ${SEEDS}; do
         --beta2 ${beta2} \
         --rlhf_algorithm ts_last \
         --lazy \
-        --opt_design 
+        --opt_design \
+        --resume
 
       # force-kill any stray Python processes
       # echo ">>> Killing leftover Python processes..."
@@ -52,7 +54,8 @@ for seed in ${SEEDS}; do
         --beta1 ${beta1} \
         --beta2 ${beta2} \
         --rlhf_algorithm ts_last \
-        --lazy
+        --lazy \
+        --resume
 
       # force-kill any stray Python processes
       # echo ">>> Killing leftover Python processes..."
@@ -74,7 +77,8 @@ for seed in ${SEEDS}; do
   echo "=== Running seed=${seed}, algo=vanilla ==="
   python scripts/rlhf/train_rlhf.py \
     --base_seed ${seed} \
-    --rlhf_algorithm vanilla
+    --rlhf_algorithm vanilla \
+    --resume
 
   # force‑kill any stray Python processes and give the system a breather
   # echo ">>> Killing leftover python processes..."
