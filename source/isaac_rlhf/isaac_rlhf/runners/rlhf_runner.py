@@ -100,14 +100,7 @@ class RlhfRunner:
             )
             results = self.task_manager.distribute_rewards()
 
-            # Observe feedback and update reward
-            print("[INFO]: Observing preference feedback and update reward...")
-            if self.task_manager.query_now():
-                _, y_new = self.task_manager.get_preferences()
-                query_count += len(y_new)
-                self.task_manager.mle_update(iter=iter)
-                lazy_update_count += 1
-            self.task_manager.sample_reward_params()
+            self.task_manager.check_results(results)
 
             # Logging
             print("[INFO]: Logging...")
@@ -134,6 +127,17 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
+
+            # Observe feedback and update reward
+            print("[INFO]: Observing preference feedback and update reward...")
+            if self.task_manager.query_now():
+                _, y_new = self.task_manager.get_preferences()
+                query_count += len(y_new)
+                self.task_manager.mle_update(iter=iter)
+                lazy_update_count += 1
+
+            # Sample new reward parameters
+            self.task_manager.sample_reward_params()
 
         self.save_final_results()
 

@@ -7,9 +7,9 @@ source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate env_isaaclab
 
 # TS loop
-SEEDS=$(seq 1 3)
-BETA1S=(1.0)
-BETA2S=(1.0)
+SEEDS=$(seq 8 10)
+BETA1S=(1e-2)
+BETA2S=(1e2)
 for seed in ${SEEDS}; do
   for beta1 in "${BETA1S[@]}"; do
     for beta2 in "${BETA2S[@]}"; do

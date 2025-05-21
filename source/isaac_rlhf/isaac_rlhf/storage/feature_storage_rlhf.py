@@ -170,7 +170,7 @@ class FeatureStorageRlhf:
         utilities = reward_model.get_gt_reward(X_new)  # [N]
         probs = torch.sigmoid(utilities)  # P(prefer first over second)
         y_new = torch.bernoulli(probs).long()  # [N]
-        print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
+        # print(f"[DEBUG]: X_new={X_new}, y_new={y_new}")
         self.update_V()
 
         # store and return new data points
