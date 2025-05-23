@@ -29,6 +29,7 @@ class RlhfCfg:
     lazy_constant: float = 2.0
     opt_design: bool = False
     ignored_reward_terms: list[str] = field(default_factory=lambda: [])
+    pure_exploration: bool = False
     # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
     # MLE arguments
@@ -39,7 +40,7 @@ class RlhfCfg:
     mle_batch_size: int = 64
 
     # RL arguments
-    num_rl_iterations: int = 50
+    num_rl_iterations: int = 30
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
     resume: bool = True
 

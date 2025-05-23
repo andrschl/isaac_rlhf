@@ -225,21 +225,21 @@ class WorkerTask:
             if self.reward_param == "Stop":
                 break
 
-            try:
-                self.prepare_rlhf_environment(self.reward_param)
-                # Only display output for worker 0; others can be muted
-                context = nullcontext() if self.idx == 0 else MuteOutput()
-                with context:
-                    features, mean_episode_reward, log_dir = self.rl_training()
-                result = {
-                    "success": True,
-                    "log_dir": log_dir,
-                    "features": features.detach().cpu().clone(),
-                    "mean_episode_reward": mean_episode_reward,
-                }
-            except Exception as e:
-                result = {"success": False, "exception": str(e)}
-                print(traceback.format_exc())
+            # try:
+            self.prepare_rlhf_environment(self.reward_param)
+            # Only display output for worker 0; others can be muted
+            context = nullcontext() if self.idx == 0 else MuteOutput()
+            with context:
+                features, mean_episode_reward, log_dir = self.rl_training()
+            result = {
+                "success": True,
+                "log_dir": log_dir,
+                "features": features.detach().cpu().clone(),
+                "mean_episode_reward": mean_episode_reward,
+            }
+            # except Exception as e:
+            #     result = {"success": False, "exception": str(e)}
+            #     print(traceback.format_exc())
 
             self.results_queue.put((self.idx, result))
 
@@ -442,37 +442,42 @@ class RlhfTaskManager:
 
         # Return updated reward params
         thetahat = self.reward_model.get_reward_params()
-        if self.feature_storage.update_params:
-            if self.cfg.rlhf_algorithm == "vanilla":
-                self.reward_params = [thetahat] * self.cfg.num_rl_runs
-                print(
-                    f"[DEBUG] Using vanilla RLHF with reward parameters: {self.reward_params}"
-                )
-                return self.reward_params
-            if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
-                eps = 1e-6
-                beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
-                cov = beta**2 * self.feature_storage.V_inv
-                cov = cov + eps * torch.eye(
-                    cov.shape[0]
-                )  # Add small noise to covariance for numerical stability
-                print(
-                    f"[DEBUG] Is symmetric: {torch.allclose(cov, cov.T)}, is pos def: {torch.all(torch.linalg.eigvals(cov).real > 1e-8)}"
-                )
-                distribution = torch.distributions.MultivariateNormal(
-                    thetahat, covariance_matrix=cov
-                )
-                self.reward_params = [
-                    distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)
-                ]
-                return self.reward_params
-            if self.cfg.rlhf_algorithm == "rl":
-                self.reward_params = [self.gt_params_as_tensor()] * self.cfg.num_rl_runs
-                return self.reward_params
-            else:
-                raise Exception(
-                    f"RLHF algorithm {self.cfg.rlhf_algorithm} is not supported yet."
-                )
+        # if self.feature_storage.update_params:
+        if (
+            self.cfg.rlhf_algorithm == "vanilla"
+            or iter >= self.cfg.num_rlhf_iterations - 1
+        ):
+            self.reward_params = [thetahat] * self.cfg.num_rl_runs
+            print(
+                f"[DEBUG] Using vanilla RLHF with reward parameters: {self.reward_params}"
+            )
+            return self.reward_params
+        if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
+            alpha = 0.0 if self.cfg.pure_exploration else 1.0
+            print(f"[DEBUG] ßpson sampling with alpha: {alpha}")
+            eps = 1e-6
+            beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
+            cov = beta**2 * self.feature_storage.V_inv
+            cov = cov + eps * torch.eye(
+                cov.shape[0]
+            )  # Add small noise to covariance for numerical stability
+            print(
+                f"[DEBUG] Is symmetric: {torch.allclose(cov, cov.T)}, is pos def: {torch.all(torch.linalg.eigvals(cov).real > 1e-8)}"
+            )
+            distribution = torch.distributions.MultivariateNormal(
+                alpha * thetahat, covariance_matrix=cov
+            )
+            self.reward_params = [
+                distribution.sample().cpu() for _ in range(self.cfg.num_rl_runs)
+            ]
+            return self.reward_params
+        if self.cfg.rlhf_algorithm == "rl":
+            self.reward_params = [self.gt_params_as_tensor()] * self.cfg.num_rl_runs
+            return self.reward_params
+        else:
+            raise Exception(
+                f"RLHF algorithm {self.cfg.rlhf_algorithm} is not supported yet."
+            )
 
     def query_now(self):
         """Check if the lazy update condition is met."""

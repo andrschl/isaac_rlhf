@@ -91,7 +91,7 @@ class RlhfRunner:
         """
         lazy_update_count = 0
         query_count = 0
-        for iter in range(self.num_rlhf_iterations):
+        for iter in range(self.num_rlhf_iterations + 1):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
             # Train the RL agent
             print(
@@ -137,7 +137,7 @@ class RlhfRunner:
                 lazy_update_count += 1
 
             # Sample new reward parameters
-            self.task_manager.sample_reward_params()
+            self.task_manager.sample_reward_params(iter=iter)
 
         self.save_final_results()
 
