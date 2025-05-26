@@ -13,6 +13,6 @@ Python module serving as a project/extension template.
 # # Register UI extensions.
 # from .ui_extension_example import *
 
-from . import algorithms, modules, runners, storage, utils
+from . import algorithms, modules, runners, storage, utils, eureka
 
-__all__ = ["algorithms", "modules", "runners", "storage", "utils"]
+__all__ = ["algorithms", "modules", "runners", "storage", "utils", "eureka"]

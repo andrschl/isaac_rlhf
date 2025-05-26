@@ -64,6 +64,7 @@ class WorkerTask:
 
         print(f"[DEBUG] Worker {self.idx} start creating environment.")
         self.env, self.simulation_app = create_environment(cfg)
+        self._add_success_metric_to_env()
         print(f"[DEBUG] Worker {self.idx} created environment: {self.env}")
 
     def prepare_rlhf_environment(self, reward_param: torch.Tensor):
@@ -83,7 +84,46 @@ class WorkerTask:
                     idx += 1
         else:
             raise Exception("Environment must be of type ManagerBasedRLEnv.")
+    
+    def _add_success_metric_to_env(self):
+        import torch
+        import types
+        from isaac_rlhf.eureka.success_metric import load_success_metric
 
+        env = self._env.unwrapped
+        namespace = {}
+
+        if not hasattr(env, "_reset_idx_original"):
+            # STEP 1: Attach compute_success_metric()
+            compute_fn = load_success_metric(rl_task_type=self._rl_task_type)
+            setattr(env, "compute_success_metric", types.MethodType(compute_fn, env))
+
+            # STEP 2: Overwrite _reset_idx
+            env._reset_idx_original = env._reset_idx
+            template_reset_string_with_success_metric = (
+                MANAGER_BASED_RESET_STRING.format(
+                    module_name=env.__module__
+                )
+            )
+            if self._rl_library == "rl_games":
+                template_reset_string_with_success_metric = template_reset_string_with_success_metric.replace(
+                    "@torch.inference_mode()", ""
+                )
+
+            exec(template_reset_string_with_success_metric, namespace)
+            setattr(env, "_reset_idx", types.MethodType(namespace["_reset_idx"], env))
+    
+    def get_reward_weights_as_string(self):
+        env = self._env.unwrapped
+
+        # === Rewards ===
+        rm = env.reward_manager
+        reward_dict = {
+            name : cfg.weight
+            for name, cfg in zip(rm._term_names, rm._term_cfgs)
+        }
+        return repr(reward_dict)
+    
     def rl_training(self):
         """Run training for the environment. Return features and a log directory."""
         from isaaclab_tasks.utils.parse_cfg import (
@@ -224,9 +264,10 @@ class WorkerTask:
             self.reward_param = self.rewards_queue.get()
             if self.reward_param == "Stop":
                 break
-
+            
             try:
                 self.prepare_rlhf_environment(self.reward_param)
+                reward_weights_str = self.get_reward_weights_as_string()
                 # Only display output for worker 0; others can be muted
                 context = nullcontext() if self.idx == 0 else MuteOutput()
                 with context:
@@ -236,6 +277,7 @@ class WorkerTask:
                     "log_dir": log_dir,
                     "features": features.detach().cpu().clone(),
                     "mean_episode_reward": mean_episode_reward,
+                    "reward_weights_str": reward_weights_str,
                 }
             except Exception as e:
                 result = {"success": False, "exception": str(e)}
@@ -416,7 +458,7 @@ class RlhfTaskManager:
                 idx, result = self.results_queue.get()
                 batch_results[idx] = result
             all_results.extend(batch_results)
-        self.feature_storage.fill_storage(all_results)
+        self.feature_storage.fill_storage(all_results) # each 'result' now has a field 'policy_id'
         print(f"[INFO] Collected results from {len(all_results)} policies.")
         return all_results
 
@@ -498,3 +540,27 @@ class RlhfTaskManager:
             q.put("Stop")
         for p in self.processes.values():
             p.join()
+
+
+
+MANAGER_BASED_RESET_STRING = """
+from {module_name} import *
+
+@torch.inference_mode()
+def _reset_idx(self, env_ids):
+    if env_ids is None or len(env_ids) == self.num_envs:
+        env_ids = torch.arange(self.num_envs, device=self.device)
+    extras = dict()
+
+    # === Custom Eureka success metrics ===
+    success_dict = self.compute_success_metric(env_ids)
+    for key, value in success_dict.items():
+        extras[f"Eureka/{{key}}"] = value
+
+    self._reset_idx_original(env_ids)
+
+    if not "log" in self.extras:
+        self.extras["log"] = dict()
+
+    self.extras["log"].update(extras)
+"""

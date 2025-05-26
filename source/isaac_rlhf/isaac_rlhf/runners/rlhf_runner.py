@@ -85,6 +85,8 @@ class RlhfRunner:
         self.log_history: dict[str, list] = {}
         print("[INFO]: RLHF Task Manager setup complete.")
 
+
+
     def run(self):
         """
         Run the RLHF training loop.
@@ -137,6 +139,7 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
+            self._log_conversation()
 
 
         self.save_final_results()
@@ -167,3 +170,11 @@ class RlhfRunner:
         df.to_csv(csv_path, index=False)
         self.task_manager.save_results(self.log_dir)
         print(f"[INFO]: Final results saved to {self.log_dir}")
+
+    
+    def _log_conversation(self, chat_history):
+        with open(f"{self.log_dir}/eureka_conversation.txt", "w") as f:
+            for chat in chat_history:
+                f.write(f"{chat['role']}: \n")
+                f.write(f"{chat['content']}\n\n")
+    
