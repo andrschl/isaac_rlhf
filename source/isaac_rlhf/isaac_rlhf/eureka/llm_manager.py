@@ -11,13 +11,14 @@ import logging
 from isaac_rlhf.utils.rlhf_utils import load_wandb_logs, load_tensorboard_logs
 import numpy as np
 import ast
+
 OPENROUTER_API_KEY = (
     "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"
 )
-from prompts import PREFERENCE_SYSTEM_PROMPT, PREFERENCE_USER_PROMPT
+from .prompts import PREFERENCE_SYSTEM_PROMPT, PREFERENCE_USER_PROMPT
+
 
 class LLMManager:
-
     def __init__(
         self,
         gpt_model: str = "gpt-4",
@@ -41,8 +42,7 @@ class LLMManager:
             self._client = openai.AzureOpenAI(api_version="2024-02-01")
         elif OPENROUTER_API_KEY:
             self._client = openai.OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=OPENROUTER_API_KEY
+                base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY
             )
         elif "OPENAI_API_KEY" in os.environ:
             self._client = openai.OpenAI()
@@ -53,9 +53,7 @@ class LLMManager:
         self._total_response_tokens = 0
         self._input_token_price = 0.27
         self._output_token_price = 1.10
-        logging.info(
-            f"LLMManager initialized with model: {gpt_model}"
-        )
+        logging.info(f"LLMManager initialized with model: {gpt_model}")
         self._success_metric_to_win = 1.0  # default success metric to win
 
     # appends a string to an already existing system prompt
@@ -82,7 +80,6 @@ class LLMManager:
         """Clear the prompts list"""
         self._prompts = []
 
-
     # call llm only with system + a single user prompt
     # still saves conversation history in self._prompts
     def call_llm_single(self, user_prompt, max_retries=3):
@@ -92,7 +89,10 @@ class LLMManager:
             try:
                 responses = self._client.chat.completions.create(
                     model=self._gpt_model,
-                    messages=[self._system_prompt, {"role": "user", "content": user_prompt}],
+                    messages=[
+                        self._system_prompt,
+                        {"role": "user", "content": user_prompt},
+                    ],
                     temperature=self._temperature,
                 )
 
@@ -105,9 +105,7 @@ class LLMManager:
                     )
                     raise RuntimeError("LLM call failed with empty response")
 
-                preference_string = self.extract_preference_from_response(
-                    raw_output
-                )
+                preference_string = self.extract_preference_from_response(raw_output)
                 if preference_string:
                     self._prompts.append({"role": "user", "content": user_prompt})
                     self._prompts.append({"role": "assistant", "content": raw_output})
@@ -220,9 +218,8 @@ class LLMManager:
             logging.info(f"Saved new {filename}")
         return summary
 
-
     def extract_preference_from_response(self, response: str):
-        match = re.search(r'preference:\s*(policy_[01])', response)
+        match = re.search(r"preference:\s*(policy_[01])", response)
         preferred_policy = match.group(1)
         return preferred_policy
 
@@ -244,10 +241,8 @@ class LLMManager:
                     seen.add(key)
 
         return filtered_data
-    
-    def get_final_success_metric(
-        self, log_dir: str
-    ) -> float:
+
+    def get_final_success_metric(self, log_dir: str) -> float:
         data = load_tensorboard_logs(log_dir)
         for metric_name, metric_data in data:
             if "success_metric" in metric_name:
@@ -256,16 +251,17 @@ class LLMManager:
         raise KeyError(
             "Could not find a key containing 'success_metric' in TensorBoard logs."
         )
-    def get_text_summary_of_training(
-        self, log_dir: str, reward_weight_string, feedback_subsampling: int=10
-        ) -> tuple[str, float, float]:
 
+    def get_text_summary_of_training(
+        self, log_dir: str, reward_weight_string, feedback_subsampling: int = 10
+    ) -> tuple[str, float, float]:
         # filtered data from tensorboard logs
         # data is a list of tuples (key, value), in order
         data = self.extract_relevant_metrics(log_dir=log_dir)
 
         success_metric_max = None
         reward_weight_dict = ast.literal_eval(reward_weight_string)
+
         def find_actual_iterations(data, suffix):
             """Find the correct key in `data` that ends with the given suffix."""
             for key, value in data:
@@ -275,8 +271,12 @@ class LLMManager:
                 f"Could not find a key ending with '{suffix}' in TensorBoard logs."
             )
 
-        actual_training_iterations = find_actual_iterations(data, "Eureka/success_metric")
-        adaptive_feedback_subsampling = actual_training_iterations // feedback_subsampling
+        actual_training_iterations = find_actual_iterations(
+            data, "Eureka/success_metric"
+        )
+        adaptive_feedback_subsampling = (
+            actual_training_iterations // feedback_subsampling
+        )
         total_feed_back_string = ""
         # just give everything, hope that llm can figure it out
         for metric_name, metric_data in data:
@@ -291,7 +291,7 @@ class LLMManager:
                 matched_weight = 1.0
             if matched_weight != 0:
                 metric_data = [value / matched_weight for value in metric_data]
-            
+
             if len(metric_data) > 2:
                 metric_data = metric_data[2:]
             metric_min = min(metric_data)
@@ -300,9 +300,7 @@ class LLMManager:
             # Best metric is the one closest to the target
             if "Eureka/success_metric" in metric_name:
                 metric_best = metric_data[
-                    np.abs(
-                        np.array(metric_data) - self._success_metric_to_win
-                    ).argmin()
+                    np.abs(np.array(metric_data) - self._success_metric_to_win).argmin()
                 ]
                 success_metric_max = metric_best
             data_string = [
@@ -314,18 +312,16 @@ class LLMManager:
             )
             total_feed_back_string += feedback_string
 
-        total_feed_back_string += (
-            f"\nThe desired Eureka/success_metric to win is: 1\n"
-        )
+        total_feed_back_string += f"\nThe desired Eureka/success_metric to win is: 1\n"
         total_feed_back_string += f"Each metric was sampled at every {adaptive_feedback_subsampling} learning iterations.\n"
         return total_feed_back_string, success_metric_max, 0
-    
+
     def query_preference(self, summary0, summary1) -> bool:
         user_prompt = PREFERENCE_USER_PROMPT.format(
             metrics_policy_0=summary0,
             metrics_policy_1=summary1,
         )
-        answer=self.call_llm_single(user_prompt)
+        answer = self.call_llm_single(user_prompt)
         if answer == "policy_0":
             return 1
         elif answer == "policy_1":

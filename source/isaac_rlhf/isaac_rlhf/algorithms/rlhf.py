@@ -84,7 +84,7 @@ class WorkerTask:
                     idx += 1
         else:
             raise Exception("Environment must be of type ManagerBasedRLEnv.")
-    
+
     def _add_success_metric_to_env(self):
         import torch
         import types
@@ -101,29 +101,28 @@ class WorkerTask:
             # STEP 2: Overwrite _reset_idx
             env._reset_idx_original = env._reset_idx
             template_reset_string_with_success_metric = (
-                MANAGER_BASED_RESET_STRING.format(
-                    module_name=env.__module__
-                )
+                MANAGER_BASED_RESET_STRING.format(module_name=env.__module__)
             )
             if self._rl_library == "rl_games":
-                template_reset_string_with_success_metric = template_reset_string_with_success_metric.replace(
-                    "@torch.inference_mode()", ""
+                template_reset_string_with_success_metric = (
+                    template_reset_string_with_success_metric.replace(
+                        "@torch.inference_mode()", ""
+                    )
                 )
 
             exec(template_reset_string_with_success_metric, namespace)
             setattr(env, "_reset_idx", types.MethodType(namespace["_reset_idx"], env))
-    
+
     def get_reward_weights_as_string(self):
         env = self._env.unwrapped
 
         # === Rewards ===
         rm = env.reward_manager
         reward_dict = {
-            name : cfg.weight
-            for name, cfg in zip(rm._term_names, rm._term_cfgs)
+            name: cfg.weight for name, cfg in zip(rm._term_names, rm._term_cfgs)
         }
         return repr(reward_dict)
-    
+
     def rl_training(self):
         """Run training for the environment. Return features and a log directory."""
         from isaaclab_tasks.utils.parse_cfg import (
@@ -264,7 +263,7 @@ class WorkerTask:
             self.reward_param = self.rewards_queue.get()
             if self.reward_param == "Stop":
                 break
-            
+
             try:
                 self.prepare_rlhf_environment(self.reward_param)
                 reward_weights_str = self.get_reward_weights_as_string()
@@ -458,13 +457,18 @@ class RlhfTaskManager:
                 idx, result = self.results_queue.get()
                 batch_results[idx] = result
             all_results.extend(batch_results)
-        self.feature_storage.fill_storage(all_results) # each 'result' now has a field 'policy_id'
+        self.feature_storage.fill_storage(
+            all_results
+        )  # each 'result' now has a field 'policy_id'
         print(f"[INFO] Collected results from {len(all_results)} policies.")
         return all_results
 
     def get_preferences(self):
         """Get synthetic preferences."""
         return self.feature_storage.get_preferences(self.reward_model)
+
+    def get_llm_preferences(self, llm_manager):
+        return self.feature_storage.get_llm_preferences(llm_manager)
 
     def mle_update(self, iter=None):
         from isaac_rlhf.algorithms import train_reward_model
@@ -540,7 +544,6 @@ class RlhfTaskManager:
             q.put("Stop")
         for p in self.processes.values():
             p.join()
-
 
 
 MANAGER_BASED_RESET_STRING = """

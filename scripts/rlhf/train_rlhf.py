@@ -11,6 +11,26 @@ import multiprocessing as mp
 from isaac_rlhf.runners import RlhfRunner
 from isaac_rlhf.config import RlhfCfg
 
+import yaml
+
+CONFIG_PATH = os.path.join(
+    os.path.dirname(__file__), "train_rlhf_config.yaml"
+)  # Ensure path is correct
+
+
+def load_yaml_config(config_path):
+    """Load configuration from YAML file."""
+    with open(config_path, "r") as file:
+        return yaml.safe_load(file)
+
+
+def merge_args_with_yaml(args, yaml_config):
+    """Merge command-line arguments with YAML config (YAML overrides CLI)."""
+    merged_config = vars(args)  # Convert argparse Namespace to dictionary
+    for key, value in yaml_config.items():
+        merged_config[key] = value  # YAML overrides CLI arguments
+    return argparse.Namespace(**merged_config)  # Convert back to Namespace
+
 
 def main(args_cli):
     kwargs = {k: v for k, v in vars(args_cli).items() if v is not None}
@@ -26,6 +46,7 @@ def main(args_cli):
 
 if __name__ == "__main__":
     mp.set_start_method("spawn", force=True)
+    yaml_config = load_yaml_config(CONFIG_PATH)
     parser = argparse.ArgumentParser(description="Train an RL agent with RLHF.")
 
     # Environment arguments
@@ -121,6 +142,6 @@ if __name__ == "__main__":
     )
 
     args_cli = parser.parse_args()
-
+    args_cli = merge_args_with_yaml(args_cli, yaml_config)
     # Run the main function
     main(args_cli)

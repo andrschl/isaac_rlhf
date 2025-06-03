@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Dict, List
 import warnings
 from einops import einsum
 from isaac_rlhf.eureka.llm_manager import LLMManager
+
 if TYPE_CHECKING:
     from isaac_rlhf.modules.linear_reward import LinearReward
     from isaac_rlhf.config import RlhfCfg
@@ -83,7 +84,9 @@ class FeatureStorageRlhf:
             # vanilla: rely only on entropy exploration
 
             for idx in range(0, len(results)):
-                features = results[idx]["features"].to(self.device)     # [num_envs, num_features]
+                features = results[idx]["features"].to(
+                    self.device
+                )  # [num_envs, num_features]
                 num_comparisons = self.cfg.num_trajectories_per_run // 2
                 for j in range(0, num_comparisons):
                     buf_idx = self.step % self.max_ep_buffers_size
@@ -97,9 +100,10 @@ class FeatureStorageRlhf:
                     self.policy_ids[buf_idx, 1] = self.policy_step
                     self.mask[buf_idx] = True
                     self.step += 1
-                self._results[idx]["policy_id"] = self.policy_step  # store policy id in results
+                self._results[idx]["policy_id"] = (
+                    self.policy_step
+                )  # store policy id in results
                 self.policy_step += 1
-
 
         elif self.cfg.rlhf_algorithm == "ts_last":
             # ts_last: compare to the last policy
@@ -128,7 +132,9 @@ class FeatureStorageRlhf:
                     )
                     self.mask[buf_idx] = True
                     self.step += 1
-                self._results[idx]["policy_id"] = self.policy_step  # store policy id in results
+                self._results[idx]["policy_id"] = (
+                    self.policy_step
+                )  # store policy id in results
                 self.policy_step += 1
 
         elif self.cfg.rlhf_algorithm == "ts_double":
@@ -194,13 +200,17 @@ class FeatureStorageRlhf:
         return X_new, y_new
 
     def get_llm_preferences(self, llm_manager: LLMManager):
-
-        X_new, policy_id_tensor = self.get_new_design_points_with_policy_id()  # [N, num_features]
+        X_new, policy_id_tensor = (
+            self.get_new_design_points_with_policy_id()
+        )  # [N, num_features]
         print(
             f"[DEBUG]: Check curr_V {torch.allclose(self.curr_V, self.V + X_new.T @ X_new)}"
         )
         for result in self._results:
-            result["training_summary"] = llm_manager.get_text_summary_of_training(result["log_dir"], result["reward_weight_string"])
+            result["training_summary"] = llm_manager.get_text_summary_of_training(
+                result["log_dir"], result["reward_weight_string"]
+            )
+            print(f"LLM TRAINING SUMMARY: {result['training_summary']}")
 
         policy_id_pairs = [tuple(pair.tolist()) for pair in policy_id_tensor]
 
@@ -221,6 +231,7 @@ class FeatureStorageRlhf:
 
             # Your LLM preference function (assumed to return 1 or 0)
             preference = llm_manager.query_preference(summary0, summary1)
+            print(f"LLM preference for {pair}: {preference}")
             pair_preference_map[pair] = preference
 
         # 5. Fill y_new based on pair_preference_map, maintaining row correspondence
@@ -247,13 +258,17 @@ class FeatureStorageRlhf:
 
         return X_new, y_new
 
-    def get_success_metric_preferences(self, llm_manager: LLMManager): 
-        X_new, policy_id_tensor = self.get_new_design_points_with_policy_id()  # [N, num_features]
+    def get_success_metric_preferences(self, llm_manager: LLMManager):
+        X_new, policy_id_tensor = (
+            self.get_new_design_points_with_policy_id()
+        )  # [N, num_features]
         print(
             f"[DEBUG]: Check curr_V {torch.allclose(self.curr_V, self.V + X_new.T @ X_new)}"
         )
         for result in self._results:
-            result["final_success_metric"] = llm_manager.get_final_success_metric(result["log_dir"])
+            result["final_success_metric"] = llm_manager.get_final_success_metric(
+                result["log_dir"]
+            )
 
         policy_id_pairs = [tuple(pair.tolist()) for pair in policy_id_tensor]
 
@@ -311,6 +326,8 @@ class FeatureStorageRlhf:
     def get_new_design_points_with_policy_id(self):
         X = self.traj_features[self.mask, 0] - self.traj_features[self.mask, 1]
         policy_id_tensor = self.policy_ids[self.mask, :]
+        return X, policy_id_tensor
+
     def get_new_design_points(self):
         X = self.traj_features[self.mask, 0] - self.traj_features[self.mask, 1]
         if self.cfg.opt_design:
@@ -392,4 +409,3 @@ class FeatureStorageRlhf:
         self.policy_ids[:] = -1
         self.mask[:] = False
         self.step = 0
-

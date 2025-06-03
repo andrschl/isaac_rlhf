@@ -8,9 +8,10 @@ import pandas as pd
 import os
 import wandb
 from typing import Literal, Optional
-
+import logging
 from isaac_rlhf.algorithms.rlhf import RlhfTaskManager
 from isaac_rlhf.config import RlhfCfg
+from isaac_rlhf.eureka import LLMManager
 
 
 class RlhfRunner:
@@ -67,9 +68,11 @@ class RlhfRunner:
             self.log_dir = os.path.join(
                 base_dir, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
             )
-
+        llm_log_dir = os.path.join(base_dir, "llm")
+        init_llm_logger(llm_log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
         # init wandb
+        wandb.login(key="9957531595fb2ab10ecf4c37e6bbeaa857f84d26")
         if wandb.run is None:
             wandb.init(
                 project=f"isaac_rlhf",
@@ -83,9 +86,8 @@ class RlhfRunner:
             wandb.config.update(cfg.to_dict(), allow_val_change=True)
         self.writer = wandb
         self.log_history: dict[str, list] = {}
+        self._llm_manager = LLMManager()
         print("[INFO]: RLHF Task Manager setup complete.")
-
-
 
     def run(self):
         """
@@ -105,7 +107,7 @@ class RlhfRunner:
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
-                _, y_new = self.task_manager.get_preferences()
+                _, y_new = self.task_manager.get_llm_preferences(self._llm_manager)
                 query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
@@ -139,8 +141,7 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
-            self._log_conversation()
-
+            self._log_conversation(self._llm_manager._prompts)
 
         self.save_final_results()
 
@@ -171,10 +172,24 @@ class RlhfRunner:
         self.task_manager.save_results(self.log_dir)
         print(f"[INFO]: Final results saved to {self.log_dir}")
 
-    
     def _log_conversation(self, chat_history):
         with open(f"{self.log_dir}/eureka_conversation.txt", "w") as f:
             for chat in chat_history:
                 f.write(f"{chat['role']}: \n")
                 f.write(f"{chat['content']}\n\n")
-    
+
+
+def init_llm_logger(log_dir: str, filename: str = "llm_debug.log", level=logging.INFO):
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, filename)
+
+    # If logger is already set up, don't reconfigure
+    if logging.getLogger().hasHandlers():
+        return
+
+    logging.basicConfig(
+        filename=log_path,
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        filemode="w",  # overwrite on each run; change to "a" to append
+    )
