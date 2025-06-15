@@ -104,6 +104,11 @@ if __name__ == "__main__":
         type=float,
         help="The L2 regularization parameter for MLE.",
     )
+    parser.add_argument(
+        "--pure_exploration",
+        action="store_true",
+        help="Use pure exploration for Thompson sampling.",
+    )
 
     # RL arguments
     parser.add_argument(

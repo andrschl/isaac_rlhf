@@ -39,6 +39,7 @@ class RlhfCfg:
     lazy_constant: float = 2.0
     opt_design: bool = False
     ignored_reward_terms: list[str] = field(default_factory=lambda: [])
+    pure_exploration: bool = False
     # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
     # MLE arguments

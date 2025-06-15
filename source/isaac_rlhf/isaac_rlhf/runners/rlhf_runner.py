@@ -99,7 +99,7 @@ class RlhfRunner:
         """
         lazy_update_count = 0
         query_count = 0
-        for iter in range(self.num_rlhf_iterations):
+        for iter in range(self.num_rlhf_iterations + 1):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
             # Train the RL agent
             print(
@@ -111,17 +111,10 @@ class RlhfRunner:
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
-                if self.preference_mode == "llm":
-                    _, y_new = self.task_manager.get_llm_preferences(self.llm_manager)
-                elif self.preference_mode == "sm":
-                    _, y_new = self.task_manager.get_sm_preferences(self.llm_manager)
-                elif self.preference_mode == "gt":
-                    _, y_new = self.task_manager.get_preferences()
+                _, y_new = self.task_manager.get_preferences()
                 query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
-
-            # Sample new reward parameters
             self.task_manager.sample_reward_params()
 
             # Logging
@@ -150,7 +143,6 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
-            self._log_conversation(self.llm_manager._prompts)
 
         self.save_final_results()
 
