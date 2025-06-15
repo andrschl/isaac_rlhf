@@ -1,5 +1,7 @@
 import torch
 from isaaclab_tasks.manager_based.manipulation.cabinet.mdp.rewards import align_grasp_around_handle
+
+
 def compute_success_metric(self, env_ids):
     # The asset config for the cabinet drawer
     asset_cfg = self.reward_manager.get_term_cfg("open_drawer_bonus").params["asset_cfg"]

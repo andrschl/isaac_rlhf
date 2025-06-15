@@ -1,13 +1,13 @@
-# all the configuration parameters for eureka
-
 task: "Isaac-Cartpole-v0" # "SBTC-Lift-Cube-Franka-OSC-v0" "SBTC-Unscrew-Franka-OSC-v0"
 
 # eureka parallel runs for evolutionary search, at each iteration
 # under the hood it runs sequentially
 # supported only for manager-based tuning
-num_envs: 1024
+
 num_rlhf_iterations: 6
 rlhf_algorithm: "ts_last"
 num_rl_runs: 6
-num_rl_iterations: 50
 preference_mode: "gt" # "llm", "sm", "gt"
+
+num_envs: 128
+num_rl_iterations: 50

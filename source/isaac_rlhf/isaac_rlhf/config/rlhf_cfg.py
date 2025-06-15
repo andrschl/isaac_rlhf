@@ -2,6 +2,16 @@ from dataclasses import dataclass, asdict, replace as dc_replace, field
 from typing import Optional, Literal
 import torch
 
+ENV_ID_TO_RL_TASK = {
+    "Isaac-Humanoid-v0": "humanoid",
+    "Isaac-Cartpole-v0": "cartpole",
+    "Isaac-Cartpole-RGB-v0": "cartpole",
+    "Isaac-Reach-Franka-v0": "reach",
+    "Isaac-Lift-Cube-Franka-v0": "lift",
+    "Isaac-Open-Drawer-Franka-v0": "cabinet",
+    "Isaac-Velocity-Flat-Anymal-B-v0": "velocity",
+}
+
 
 @dataclass
 class RlhfCfg:
@@ -15,10 +25,10 @@ class RlhfCfg:
     num_features: Optional[int] = None
     gt_params: Optional[torch.Tensor] = None
     dt: Optional[float] = None
-
+    rl_task_type = ENV_ID_TO_RL_TASK.get(task, "cartpole")
     # RLHF arguments
     num_rlhf_iterations: int = 30
-    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "vanilla"
+    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "ts_nC2", "rl"] = "vanilla"
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 10
     trajectory_length: int = 150
@@ -47,6 +57,7 @@ class RlhfCfg:
     base_seed: int = 42
     num_processes: int = 1
     device: str = "cuda"
+    preference_mode: str = "llm"
 
     def to_dict(self):
         return asdict(self)

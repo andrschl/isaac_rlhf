@@ -1,5 +1,6 @@
 import torch
 
+
 def compute_success_metric(self, env_ids):
     asset = self.scene["robot"]
     # Retrieve the target position

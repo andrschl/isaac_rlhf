@@ -2,14 +2,18 @@
 
 import importlib
 
+
 def load_success_metric(rl_task_type: str):
-    module_path = f"isaaclab_eureka.success_metric.{rl_task_type}"
+    module_path = f"isaac_rlhf.eureka.success_metric.{rl_task_type}"
     mod = importlib.import_module(module_path)
 
     if not hasattr(mod, "compute_success_metric"):
-        raise AttributeError(f"Module '{module_path}' does not define compute_success_metric()")
-    
+        raise AttributeError(
+            f"Module '{module_path}' does not define compute_success_metric()"
+        )
+
     return mod.compute_success_metric
+
 
 # write your task_specific success metric in this folder
 # filename should be equivalent to sbtc_tasks folder name

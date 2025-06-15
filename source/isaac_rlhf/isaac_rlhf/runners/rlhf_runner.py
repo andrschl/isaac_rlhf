@@ -23,12 +23,13 @@ class RlhfRunner:
         """
 
         self.num_rlhf_iterations = cfg.num_rlhf_iterations
-
+        print(f"[INFO]: Initializing LLM Manager...")
+        self.llm_manager = LLMManager()
         print("[INFO]: Setting up the RLHF Task Manager...")
         self.task_manager = RlhfTaskManager(cfg)
-
         # Logging
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.preference_mode = cfg.preference_mode
         # self.log_dir = os.path.join("logs", "rlhf", cfg.task, timestamp)
         if cfg.resume:
             base_dir = os.path.join("logs", "rlhf", cfg.task, "resume")
@@ -60,17 +61,21 @@ class RlhfRunner:
                     f"beta2_{cfg.beta2}",
                     f"seed_{cfg.base_seed}",
                 )
-        elif cfg.rlhf_algorithm == "vanilla":
+        elif cfg.rlhf_algorithm == "vanilla" or cfg.rlhf_algorithm == "ts_nC2":
             self.log_dir = os.path.join(
-                base_dir, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
+                base_dir,
+                cfg.rlhf_algorithm,
+                cfg.preference_mode,
+                f"seed_{cfg.base_seed}",
             )
         elif cfg.rlhf_algorithm == "rl":
             self.log_dir = os.path.join(
                 base_dir, cfg.rlhf_algorithm, f"seed_{cfg.base_seed}"
             )
-        llm_log_dir = os.path.join(base_dir, "llm")
-        init_llm_logger(llm_log_dir)
+
         os.makedirs(self.log_dir, exist_ok=True)
+        self.llm_log_dir = os.path.join(self.log_dir, "llm")
+        os.makedirs(self.llm_log_dir, exist_ok=True)
         # init wandb
         wandb.login(key="9957531595fb2ab10ecf4c37e6bbeaa857f84d26")
         if wandb.run is None:
@@ -86,7 +91,6 @@ class RlhfRunner:
             wandb.config.update(cfg.to_dict(), allow_val_change=True)
         self.writer = wandb
         self.log_history: dict[str, list] = {}
-        self._llm_manager = LLMManager()
         print("[INFO]: RLHF Task Manager setup complete.")
 
     def run(self):
@@ -107,7 +111,12 @@ class RlhfRunner:
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
-                _, y_new = self.task_manager.get_llm_preferences(self._llm_manager)
+                if self.preference_mode == "llm":
+                    _, y_new = self.task_manager.get_llm_preferences(self.llm_manager)
+                elif self.preference_mode == "sm":
+                    _, y_new = self.task_manager.get_sm_preferences(self.llm_manager)
+                elif self.preference_mode == "gt":
+                    _, y_new = self.task_manager.get_preferences()
                 query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
@@ -141,7 +150,7 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
-            self._log_conversation(self._llm_manager._prompts)
+            self._log_conversation(self.llm_manager._prompts)
 
         self.save_final_results()
 
@@ -173,7 +182,7 @@ class RlhfRunner:
         print(f"[INFO]: Final results saved to {self.log_dir}")
 
     def _log_conversation(self, chat_history):
-        with open(f"{self.log_dir}/eureka_conversation.txt", "w") as f:
+        with open(f"{self.llm_log_dir}/eureka_conversation.txt", "w") as f:
             for chat in chat_history:
                 f.write(f"{chat['role']}: \n")
                 f.write(f"{chat['content']}\n\n")

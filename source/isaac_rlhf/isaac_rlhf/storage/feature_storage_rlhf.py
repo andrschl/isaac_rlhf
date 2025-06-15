@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from isaac_rlhf.modules.linear_reward import LinearReward
     from isaac_rlhf.config import RlhfCfg
 
-
+from itertools import combinations
 # This storage is for linear reward classes. It stores the reward terms of for a manager-based environment.
 
 
@@ -117,7 +117,7 @@ class FeatureStorageRlhf:
                     buf_idx = self.step % self.max_ep_buffers_size
                     self.traj_features[buf_idx, 0] = features[2 * j]
                     self.policy_ids[buf_idx, 0] = self.policy_step
-                    if self.step == 0 and self.policy_step == 0:
+                    if self.policy_step == 0:
                         # Compare to trajectories from the same policy
                         self.traj_features[buf_idx, 1] = features[2 * j + 1]
                         self.policy_ids[buf_idx, 1] = self.policy_step
@@ -160,6 +160,32 @@ class FeatureStorageRlhf:
                 self._results[idx]["policy_id"] = 2 * self.policy_step
                 self._results[idx + 1]["policy_id"] = 2 * self.policy_step + 1
                 self.policy_step += 1
+
+        elif self.cfg.rlhf_algorithm == "ts_nC2":
+            # Compare all unique pairs of policies
+            policy_pairs = list(combinations(range(len(results)), 2))
+
+            for pi, pj in policy_pairs:
+                f0 = results[pi]["features"].to(self.device)
+                f1 = results[pj]["features"].to(self.device)
+                num_comparisons = self.cfg.num_trajectories_per_run // 2
+
+                for j in range(num_comparisons):
+                    buf_idx = self.step % self.max_ep_buffers_size
+                    self.traj_features[buf_idx, 0] = f0[j]
+                    self.traj_features[buf_idx, 1] = f1[j]
+                    self.curr_V += torch.outer(
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
+                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
+                    )
+                    self.policy_ids[buf_idx, 0] = pi
+                    self.policy_ids[buf_idx, 1] = pj
+                    self.mask[buf_idx] = True
+                    self.step += 1
+
+            # Assign policy IDs to results (optional, only needed if used downstream)
+            for i in range(len(results)):
+                self._results[i]["policy_id"] = i
         else:
             raise ValueError(
                 f"Unknown rlhf_algorithm: {self.cfg.rlhf_algorithm}. "
@@ -208,9 +234,8 @@ class FeatureStorageRlhf:
         )
         for result in self._results:
             result["training_summary"] = llm_manager.get_text_summary_of_training(
-                result["log_dir"], result["reward_weight_string"]
+                result["log_dir"], result["reward_weights_str"]
             )
-            print(f"LLM TRAINING SUMMARY: {result['training_summary']}")
 
         policy_id_pairs = [tuple(pair.tolist()) for pair in policy_id_tensor]
 
@@ -233,7 +258,39 @@ class FeatureStorageRlhf:
             preference = llm_manager.query_preference(summary0, summary1)
             print(f"LLM preference for {pair}: {preference}")
             pair_preference_map[pair] = preference
+            
+        # see if there's a cycle in the preference graph
+        graph = {}
+        for (a, b), pref in pair_preference_map.items():
+            if pref == 1:
+                graph.setdefault(a, []).append(b)
+            else:
+                graph.setdefault(b, []).append(a)
 
+        def _has_cycle(graph):
+            visited = set()
+            rec_stack = set()
+
+            def dfs(node):
+                visited.add(node)
+                rec_stack.add(node)
+                for neighbor in graph.get(node, []):
+                    if neighbor not in visited:
+                        if dfs(neighbor):
+                            return True
+                    elif neighbor in rec_stack:
+                        return True
+                rec_stack.remove(node)
+                return False
+
+            for node in graph:
+                if node not in visited:
+                    if dfs(node):
+                        return True
+            return False
+
+        if _has_cycle(graph):
+            print("⚠️  Cyclic preference detected")
         # 5. Fill y_new based on pair_preference_map, maintaining row correspondence
         y_new_list = []
         for pair in policy_id_pairs:
@@ -258,7 +315,7 @@ class FeatureStorageRlhf:
 
         return X_new, y_new
 
-    def get_success_metric_preferences(self, llm_manager: LLMManager):
+    def get_sm_preferences(self, llm_manager: LLMManager):
         X_new, policy_id_tensor = (
             self.get_new_design_points_with_policy_id()
         )  # [N, num_features]

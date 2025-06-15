@@ -4,12 +4,16 @@
 
 """Script to train an RL agent with RLHF."""
 
+import isaac_rlhf
+print(isaac_rlhf.__file__)
+
 import argparse
 import os
 import multiprocessing as mp
 
 from isaac_rlhf.runners import RlhfRunner
 from isaac_rlhf.config import RlhfCfg
+
 
 import yaml
 

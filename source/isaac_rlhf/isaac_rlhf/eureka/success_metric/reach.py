@@ -1,6 +1,7 @@
 import torch
 from isaaclab.utils.math import combine_frame_transforms, quat_error_magnitude, quat_mul
 
+
 def compute_success_metric(self, env_ids):
     # Load config
     pos_term_cfg = self.reward_manager.get_term_cfg("end_effector_position_tracking")

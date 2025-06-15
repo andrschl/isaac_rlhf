@@ -20,6 +20,10 @@ In your response, provide your preference and briefly explain your reasoning in 
 PREFERENCE_USER_PROMPT = """
 You are a skilled preference annotator for robotic reinforcement learning tasks.
 Give your preference between the two policies based on the metrics provided and briefly explain your reasoning in a single sentence.
+The metrics are sampled in fixed intervals during training, so you can see how they progressed over time.
+For success metric, focus on the final value because that is the value from learned policy.
+Initial or mid-training success metric values are not fully representative, as the policy is still learning.
+For other metrics, you should consider their progression over time.
 Here are the metrics for the two policies:
 policy_0:
 {metrics_policy_0}

@@ -1,27 +1,26 @@
 # Copyright (c) 2024, The Isaac Lab Project Developers.
 #
 # SPDX-License-Identifier: Apache-2.0
-
+from isaac_rlhf.eureka.prompts import PREFERENCE_SYSTEM_PROMPT, PREFERENCE_USER_PROMPT
 import os
 import re
 
 import traceback
 import openai
 import logging
-from isaac_rlhf.utils.rlhf_utils import load_wandb_logs, load_tensorboard_logs
+from isaac_rlhf.utils.rlhf_utils import load_tensorboard_logs
 import numpy as np
 import ast
 
 OPENROUTER_API_KEY = (
     "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"
 )
-from .prompts import PREFERENCE_SYSTEM_PROMPT, PREFERENCE_USER_PROMPT
 
 
 class LLMManager:
     def __init__(
         self,
-        gpt_model: str = "gpt-4",
+        gpt_model: str = "deepseek/deepseek-r1-0528:free",
         system_prompt: str = PREFERENCE_SYSTEM_PROMPT,
     ):
         """Initialize the LLMManager
@@ -38,16 +37,9 @@ class LLMManager:
         # self._prompts = [{"role": "system", "content": system_prompt}]
         self._system_prompt = {"role": "system", "content": system_prompt}
         self._prompts = [self._system_prompt]
-        if "AZURE_OPENAI_API_KEY" in os.environ:
-            self._client = openai.AzureOpenAI(api_version="2024-02-01")
-        elif OPENROUTER_API_KEY:
-            self._client = openai.OpenAI(
-                base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY
-            )
-        elif "OPENAI_API_KEY" in os.environ:
-            self._client = openai.OpenAI()
-        else:
-            raise RuntimeError("No Openai API key found in environment variables")
+        self._client = openai.OpenAI(
+            base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY
+        )
         self._total_tokens = 0
         self._total_query_tokens = 0
         self._total_response_tokens = 0
@@ -57,15 +49,15 @@ class LLMManager:
         self._success_metric_to_win = 1.0  # default success metric to win
 
     # appends a string to an already existing system prompt
-    def append_to_system_prompt(self, additioal_prompt: str):
+    def append_to_system_prompt(self, additional_prompt: str):
         assert self._prompts[0]["role"] == "system"
-        self._prompts[0]["content"] += additioal_prompt
+        self._prompts[0]["content"] += additional_prompt
 
     # granular control over self._prompts
     # in the main codeblock, make sure
     # appends a new system prompt to an empty list
     def append_system_prompt(self, prompt: str):
-        assert not self._prompts  #  assert that self._prompts is an empty list
+        assert not self._prompts
         self._prompts.append({"role": "system", "content": prompt})
 
     # appends a new user prompt
@@ -244,7 +236,7 @@ class LLMManager:
 
     def get_final_success_metric(self, log_dir: str) -> float:
         data = load_tensorboard_logs(log_dir)
-        for metric_name, metric_data in data:
+        for metric_name, metric_data in data.items():
             if "success_metric" in metric_name:
                 # Return the last value of the success metric
                 return metric_data[-1]
@@ -321,7 +313,7 @@ class LLMManager:
             metrics_policy_0=summary0,
             metrics_policy_1=summary1,
         )
-        answer = self.call_llm_single(user_prompt)
+        answer, raw_output = self.call_llm_single(user_prompt)
         if answer == "policy_0":
             return 1
         elif answer == "policy_1":
@@ -330,3 +322,10 @@ class LLMManager:
             raise RuntimeError(
                 f"LLM returned unexpected preference: {answer}. Expected 'policy_0' or 'policy_1'."
             )
+
+
+if __name__ == "__main__":
+    # Example usage
+    llm_manager = LLMManager()
+    response, raw_output = llm_manager.call_llm_single(PREFERENCE_USER_PROMPT)
+    print(f"raw_output: {raw_output}")

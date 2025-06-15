@@ -90,12 +90,12 @@ class WorkerTask:
         import types
         from isaac_rlhf.eureka.success_metric import load_success_metric
 
-        env = self._env.unwrapped
+        env = self.env.unwrapped
         namespace = {}
 
         if not hasattr(env, "_reset_idx_original"):
             # STEP 1: Attach compute_success_metric()
-            compute_fn = load_success_metric(rl_task_type=self._rl_task_type)
+            compute_fn = load_success_metric(rl_task_type=self.cfg.rl_task_type)
             setattr(env, "compute_success_metric", types.MethodType(compute_fn, env))
 
             # STEP 2: Overwrite _reset_idx
@@ -103,18 +103,12 @@ class WorkerTask:
             template_reset_string_with_success_metric = (
                 MANAGER_BASED_RESET_STRING.format(module_name=env.__module__)
             )
-            if self._rl_library == "rl_games":
-                template_reset_string_with_success_metric = (
-                    template_reset_string_with_success_metric.replace(
-                        "@torch.inference_mode()", ""
-                    )
-                )
 
             exec(template_reset_string_with_success_metric, namespace)
             setattr(env, "_reset_idx", types.MethodType(namespace["_reset_idx"], env))
 
     def get_reward_weights_as_string(self):
-        env = self._env.unwrapped
+        env = self.env.unwrapped
 
         # === Rewards ===
         rm = env.reward_manager
@@ -142,7 +136,7 @@ class WorkerTask:
             agent_cfg.max_iterations = self.cfg.num_rl_iterations
 
             log_root_path = os.path.join(
-                "logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name
+                "logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name, self.cfg.preference_mode
             )
             log_root_path = os.path.abspath(log_root_path)
             print(f"[INFO] Logging experiment in directory: {log_root_path}")
@@ -269,8 +263,11 @@ class WorkerTask:
                 reward_weights_str = self.get_reward_weights_as_string()
                 # Only display output for worker 0; others can be muted
                 context = nullcontext() if self.idx == 0 else MuteOutput()
+                # context = MuteOutput()
+                print("STARTING RL TRAINING")
                 with context:
                     features, mean_episode_reward, log_dir = self.rl_training()
+                print("FINISHED RL TRAINING")
                 result = {
                     "success": True,
                     "log_dir": log_dir,
@@ -470,6 +467,9 @@ class RlhfTaskManager:
     def get_llm_preferences(self, llm_manager):
         return self.feature_storage.get_llm_preferences(llm_manager)
 
+    def get_sm_preferences(self, llm_manager):
+        return self.feature_storage.get_sm_preferences(llm_manager)
+
     def mle_update(self, iter=None):
         from isaac_rlhf.algorithms import train_reward_model
 
@@ -495,7 +495,7 @@ class RlhfTaskManager:
                     f"[DEBUG] Using vanilla RLHF with reward parameters: {self.reward_params}"
                 )
                 return self.reward_params
-            if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
+            if self.cfg.rlhf_algorithm in ["ts_double", "ts_last", 'ts_nC2']:
                 eps = 1e-6
                 beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
                 cov = beta**2 * self.feature_storage.V_inv

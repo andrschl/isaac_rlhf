@@ -1,6 +1,8 @@
 # task success metric for lift task
 import torch
 from isaaclab.utils.math import combine_frame_transforms
+
+
 def compute_success_metric(self, env_ids):
     obj = self.scene["object"]
     robot = self.scene["robot"]
@@ -18,7 +20,7 @@ def compute_success_metric(self, env_ids):
     min_height = self.reward_manager.get_term_cfg("object_goal_tracking").params["minimal_height"]
     
     dist = torch.norm(object_pos_w[:] - command_pos_w[:], dim=1)
-    is_close = 1 - torch.tanh(dist/std)
+    is_close = 1 - torch.tanh(dist / std)
     is_lifted = object_pos_w[:, 2] > min_height
 
     success = is_close * is_lifted

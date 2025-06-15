@@ -11,7 +11,7 @@ sweep_config = {
 }
 
 if __name__ == "__main__":
-    sweep_id = wandb.sweep(sweep_config, project="isaac_rlhf")
+    sweep_id = wandb.sweep(sweep_config, project="isaac_rlhf)
 
     def sweep_run():
         # 1) init the W&B run (config is injected by the agent)
