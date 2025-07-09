@@ -57,6 +57,6 @@ _build
 **/runs/*
 **/logs/*
 **/recordings/*
-
+**/preference_data/**
 # Pre-Trained Checkpoints
 /.pretrained_checkpoints/

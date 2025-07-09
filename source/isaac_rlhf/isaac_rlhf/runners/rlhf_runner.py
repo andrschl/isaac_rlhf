@@ -99,7 +99,7 @@ class RlhfRunner:
         """
         lazy_update_count = 0
         query_count = 0
-        for iter in range(self.num_rlhf_iterations + 1):
+        for iter in range(self.num_rlhf_iterations):
             print(f"\n{'#' * 20} Running RLHF Iteration {iter} {'#' * 20} \n")
             # Train the RL agent
             print(
@@ -111,7 +111,7 @@ class RlhfRunner:
             # Observe feedback and update reward
             print("[INFO]: Observing preference feedback and update reward...")
             if self.task_manager.query_now():
-                _, y_new = self.task_manager.get_preferences()
+                _, y_new = self.task_manager.get_preferences(self.llm_manager, self.preference_mode)
                 query_count += len(y_new)
                 self.task_manager.mle_update(iter=iter)
                 lazy_update_count += 1
@@ -143,6 +143,7 @@ class RlhfRunner:
                 self.task_manager.gt_params_as_tensor()
             )
             self.logging_step(logdict_wandb, logdict_console, iter)
+            self._log_conversation()
 
         self.save_final_results()
 
@@ -173,9 +174,9 @@ class RlhfRunner:
         self.task_manager.save_results(self.log_dir)
         print(f"[INFO]: Final results saved to {self.log_dir}")
 
-    def _log_conversation(self, chat_history):
+    def _log_conversation(self):
         with open(f"{self.llm_log_dir}/eureka_conversation.txt", "w") as f:
-            for chat in chat_history:
+            for chat in self.llm_manager._prompts:
                 f.write(f"{chat['role']}: \n")
                 f.write(f"{chat['content']}\n\n")
 

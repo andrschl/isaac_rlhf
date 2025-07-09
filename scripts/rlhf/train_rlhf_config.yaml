@@ -1,6 +1,6 @@
 # all the configuration parameters for eureka
 
-task: "Isaac-Cartpole-v0" # "SBTC-Lift-Cube-Franka-OSC-v0" "SBTC-Unscrew-Franka-OSC-v0"
+task: "Isaac-Humanoid-v0" # "SBTC-Lift-Cube-Franka-OSC-v0" "SBTC-Unscrew-Franka-OSC-v0"
 
 # eureka parallel runs for evolutionary search, at each iteration
 # under the hood it runs sequentially
@@ -8,6 +8,8 @@ task: "Isaac-Cartpole-v0" # "SBTC-Lift-Cube-Franka-OSC-v0" "SBTC-Unscrew-Franka-
 num_envs: 1024
 num_rlhf_iterations: 6
 rlhf_algorithm: "ts_last"
-num_rl_runs: 6
-num_rl_iterations: 50
-preference_mode: "gt" # "llm", "sm", "gt"
+num_rl_runs: 5
+num_rl_iterations: 500
+preference_mode: "llm" # "llm", "sm", "gt"
+pure_exploration: False
+base_seed: 20

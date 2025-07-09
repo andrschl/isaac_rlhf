@@ -36,7 +36,8 @@ class FeatureStorageRlhf:
         self.step = 0
         self.policy_step = 0
         self._results = None
-
+        self._policy_id_to_summary = {}
+        self._policy_id_to_sm = {}
         # circular rlhf episode buffers
         self.traj_features = torch.zeros(
             (max_ep_buffers_size, 2, self.num_features), device=device
@@ -242,56 +243,25 @@ class FeatureStorageRlhf:
         unique_pairs = list(set(policy_id_pairs))
 
         # 3. Map policy_id to training summaries
-        policy_id_to_summary = {
-            res["policy_id"]: res["training_summary"] for res in self._results
-        }
+        for res in self._results:
+            self._policy_id_to_summary[res["policy_id"]] = res["training_summary"]
 
         # 4. Query the LLM for each unique pair and store the preference
         # Example function: query_llm_for_preference(summary0, summary1) -> 1 or 0
         pair_preference_map = {}
         for pair in unique_pairs:
             id0, id1 = pair
-            summary0 = policy_id_to_summary[id0]
-            summary1 = policy_id_to_summary[id1]
+            if id0 == id1:
+                pair_preference_map[pair] = 0
+                continue
+            summary0 = self._policy_id_to_summary.get(id0, "")
+            summary1 = self._policy_id_to_summary.get(id1, "")
 
             # Your LLM preference function (assumed to return 1 or 0)
             preference = llm_manager.query_preference(summary0, summary1)
-            print(f"LLM preference for {pair}: {preference}")
             pair_preference_map[pair] = preference
-            
-        # see if there's a cycle in the preference graph
-        graph = {}
-        for (a, b), pref in pair_preference_map.items():
-            if pref == 1:
-                graph.setdefault(a, []).append(b)
-            else:
-                graph.setdefault(b, []).append(a)
+            print(f"LLM preference for {pair}: {preference}")
 
-        def _has_cycle(graph):
-            visited = set()
-            rec_stack = set()
-
-            def dfs(node):
-                visited.add(node)
-                rec_stack.add(node)
-                for neighbor in graph.get(node, []):
-                    if neighbor not in visited:
-                        if dfs(neighbor):
-                            return True
-                    elif neighbor in rec_stack:
-                        return True
-                rec_stack.remove(node)
-                return False
-
-            for node in graph:
-                if node not in visited:
-                    if dfs(node):
-                        return True
-            return False
-
-        if _has_cycle(graph):
-            print("⚠️  Cyclic preference detected")
-        # 5. Fill y_new based on pair_preference_map, maintaining row correspondence
         y_new_list = []
         for pair in policy_id_pairs:
             preference = pair_preference_map[pair]
@@ -332,17 +302,15 @@ class FeatureStorageRlhf:
         unique_pairs = list(set(policy_id_pairs))
 
         # 3. Map policy_id to training summaries
-        policy_id_to_sm = {
-            res["policy_id"]: res["final_success_metric"] for res in self._results
-        }
-
+        for res in self._results:
+            self._policy_id_to_sm[res["policy_id"]] = res["final_success_metric"]
         # 4. Query the LLM for each unique pair and store the preference
         # Example function: query_llm_for_preference(summary0, summary1) -> 1 or 0
         pair_preference_map = {}
         for pair in unique_pairs:
             id0, id1 = pair
-            sm0 = policy_id_to_sm[id0]
-            sm1 = policy_id_to_sm[id1]
+            sm0 = self._policy_id_to_sm[id0]
+            sm1 = self._policy_id_to_sm[id1]
             # Your LLM preference function (assumed to return 1 or 0)
             preference = 1 if sm0 > sm1 else 0
             pair_preference_map[pair] = preference

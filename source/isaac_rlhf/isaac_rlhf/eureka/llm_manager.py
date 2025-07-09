@@ -12,10 +12,6 @@ from isaac_rlhf.utils.rlhf_utils import load_tensorboard_logs
 import numpy as np
 import ast
 
-OPENROUTER_API_KEY = (
-    "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"
-)
-
 
 class LLMManager:
     def __init__(
@@ -37,8 +33,11 @@ class LLMManager:
         # self._prompts = [{"role": "system", "content": system_prompt}]
         self._system_prompt = {"role": "system", "content": system_prompt}
         self._prompts = [self._system_prompt]
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        print(f"Using OpenRouter API key: {api_key}")
         self._client = openai.OpenAI(
-            base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
         )
         self._total_tokens = 0
         self._total_query_tokens = 0

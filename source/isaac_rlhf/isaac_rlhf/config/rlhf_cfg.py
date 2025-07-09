@@ -25,15 +25,17 @@ class RlhfCfg:
     num_features: Optional[int] = None
     gt_params: Optional[torch.Tensor] = None
     dt: Optional[float] = None
-    rl_task_type = ENV_ID_TO_RL_TASK.get(task, "cartpole")
+    rl_task_type: Optional[str] = None
     # RLHF arguments
     num_rlhf_iterations: int = 30
-    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "ts_nC2", "rl"] = "vanilla"
+    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "ts_nC2", "rl"] = (
+        "vanilla"
+    )
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 10
     trajectory_length: int = 150
-    beta1: float = 1.0
-    beta2: float = 1.0
+    beta1: float = 1e-2
+    beta2: float = 1e-4
     lambda_: float = 1.0
     lazy: bool = False
     lazy_constant: float = 2.0
@@ -59,6 +61,10 @@ class RlhfCfg:
     num_processes: int = 1
     device: str = "cuda"
     preference_mode: str = "llm"
+
+    def __post_init__(self):
+        if self.rl_task_type is None:
+            self.rl_task_type = ENV_ID_TO_RL_TASK.get(self.task, "unknown")
 
     def to_dict(self):
         return asdict(self)

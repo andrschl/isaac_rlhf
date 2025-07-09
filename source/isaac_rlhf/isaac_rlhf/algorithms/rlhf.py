@@ -136,7 +136,11 @@ class WorkerTask:
             agent_cfg.max_iterations = self.cfg.num_rl_iterations
 
             log_root_path = os.path.join(
-                "logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name, self.cfg.preference_mode
+                "logs",
+                "rl_runs",
+                "rsl_rl_rlhf",
+                agent_cfg.experiment_name,
+                self.cfg.preference_mode,
             )
             log_root_path = os.path.abspath(log_root_path)
             print(f"[INFO] Logging experiment in directory: {log_root_path}")
@@ -260,6 +264,7 @@ class WorkerTask:
 
             # try:
             self.prepare_rlhf_environment(self.reward_param)
+            reward_weights_str = self.get_reward_weights_as_string()
             # Only display output for worker 0; others can be muted
             context = nullcontext() if self.idx == 0 else MuteOutput()
             with context:
@@ -269,6 +274,7 @@ class WorkerTask:
                 "log_dir": log_dir,
                 "features": features.detach().cpu().clone(),
                 "mean_episode_reward": mean_episode_reward,
+                "reward_weights_str": reward_weights_str,
             }
             # except Exception as e:
             #     result = {"success": False, "exception": str(e)}
@@ -455,9 +461,15 @@ class RlhfTaskManager:
         print(f"[INFO] Collected results from {len(all_results)} policies.")
         return all_results
 
-    def get_preferences(self):
+    def get_preferences(self, llm_manager, preference_mode):
         """Get synthetic preferences."""
-        return self.feature_storage.get_preferences(self.reward_model)
+
+        if preference_mode == "llm":
+            return self.feature_storage.get_llm_preferences(llm_manager)
+        elif preference_mode == "sm":
+            return self.feature_storage.get_sm_preferences(llm_manager)
+        else:
+            return self.feature_storage.get_preferences(self.reward_model)
 
     def get_llm_preferences(self, llm_manager):
         return self.feature_storage.get_llm_preferences(llm_manager)
@@ -497,7 +509,7 @@ class RlhfTaskManager:
             alpha = 0.0 if self.cfg.pure_exploration else 1.0
             print(f"[DEBUG] ßpson sampling with alpha: {alpha}")
             eps = 1e-6
-            beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
+            beta = self.cfg.beta1 + self.cfg.beta2 * max(math.log(iter + 1), 1)
             cov = beta**2 * self.feature_storage.V_inv
             cov = cov + eps * torch.eye(
                 cov.shape[0]
