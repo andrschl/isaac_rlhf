@@ -456,7 +456,7 @@ class RlhfTaskManager:
             alpha = 0.0 if self.cfg.pure_exploration else 1.0
             print(f"[DEBUG] ßpson sampling with alpha: {alpha}")
             eps = 1e-6
-            beta = self.cfg.beta1 + self.cfg.beta2 * min(math.log(iter + 1), 1)
+            beta = self.cfg.beta1 + self.cfg.beta2 * max(math.log(iter + 1), 1)
             cov = beta**2 * self.feature_storage.V_inv
             cov = cov + eps * torch.eye(
                 cov.shape[0]

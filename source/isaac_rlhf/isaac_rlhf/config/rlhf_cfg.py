@@ -22,8 +22,8 @@ class RlhfCfg:
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 10
     trajectory_length: int = 150
-    beta1: float = 1.0
-    beta2: float = 1.0
+    beta1: float = 1
+    beta2: float = 1
     lambda_: float = 1.0
     lazy: bool = False
     lazy_constant: float = 2.0
@@ -42,7 +42,7 @@ class RlhfCfg:
     # RL arguments
     num_rl_iterations: int = 30
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
-    resume: bool = True
+    resume: bool = False
 
     # System arguments
     base_seed: int = 42
