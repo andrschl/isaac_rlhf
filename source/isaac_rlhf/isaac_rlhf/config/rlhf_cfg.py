@@ -8,7 +8,9 @@ class RlhfCfg:
     """Configuration for RLHF training."""
 
     # Environment arguments
-    task: str = "Isaac-Cartpole-v0"
+    task: str = (
+        "Isaac-Velocity-Flat-H1-v0"  # "Isaac-Reach-Franka-v0"  # "Isaac-Cartpole-v0"
+    )
     #  "Isaac-Velocity-Flat-H1-v0"  # "Isaac-Reach-Franka-v0"  # "Isaac-Cartpole-v0"
     # )
     num_envs: Optional[int] = None
@@ -20,7 +22,7 @@ class RlhfCfg:
     num_rlhf_iterations: int = 30
     rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "vanilla"
     num_rl_runs: int = 1
-    num_trajectories_per_run: int = 10
+    num_trajectories_per_run: int = 100
     trajectory_length: int = 150
     beta1: float = 1
     beta2: float = 1
@@ -40,7 +42,7 @@ class RlhfCfg:
     mle_batch_size: int = 64
 
     # RL arguments
-    num_rl_iterations: int = 30
+    num_rl_iterations: int = 300
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
     resume: bool = False
 

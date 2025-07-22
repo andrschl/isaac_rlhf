@@ -221,11 +221,13 @@ class WorkerTask:
 
         print(f"[INFO]: Worker {self.idx} started.")
         while not self.termination_event.is_set():
+            print(f"[DEBUG]: Worker {self.idx} waiting for reward parameters.")
             self.reward_param = self.rewards_queue.get()
             if self.reward_param == "Stop":
                 break
 
             # try:
+            print(f"[DEBUG]: Worker {self.idx} prepare reward parameters: {self.reward_param}")
             self.prepare_rlhf_environment(self.reward_param)
             # Only display output for worker 0; others can be muted
             context = nullcontext() if self.idx == 0 else MuteOutput()
@@ -410,6 +412,9 @@ class RlhfTaskManager:
         for i in range(0, total, self.cfg.num_processes):
             batch = self.reward_params[i : i + self.cfg.num_processes]
             for idx in range(len(batch)):
+                print(
+                    f"[DEBUG] Worker {idx} supposed to receive reward parameters: {batch[idx]}"
+                    )
                 self.rewards_queues[idx].put(batch[idx])
             batch_results = [None] * len(batch)
             for _ in range(len(batch)):

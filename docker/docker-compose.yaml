@@ -1,5 +1,6 @@
  x-default-isaac-rlhf-environment: &default-isaac-rlhf-environment
   - OMNI_KIT_ALLOW_ROOT=1
+  - WANDB_API_KEY=${WANDB_API_KEY}
 
  x-default-isaac-rlhf-deploy: &default-isaac-rlhf-deploy
   resources:
@@ -7,9 +8,9 @@
       devices:
         - driver: nvidia
           count: all
-          capabilities: [ gpu ]
+          capabilities: [gpu]
 
-services:
+ services:
   isaac-rlhf:
     env_file: .env.base
     build:
@@ -27,6 +28,7 @@ services:
     network_mode: host
     environment: *default-isaac-rlhf-environment
     deploy: *default-isaac-rlhf-deploy
+    
     # This is the entrypoint for the container
     entrypoint: bash
     stdin_open: true

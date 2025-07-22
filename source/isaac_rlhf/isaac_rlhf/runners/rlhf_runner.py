@@ -69,6 +69,16 @@ class RlhfRunner:
             )
 
         os.makedirs(self.log_dir, exist_ok=True)
+        print(f"[INFO]: Logging directory: {self.log_dir}")
+        
+        # Login to wandb if not already logged in
+        try:
+            # Try to get API key from environment variable
+            wandb.login(key='fe04019f20e97035a6d27a2e167efa17e0898356')
+        except Exception as e:
+            print(f"[WARNING]: Could not login to wandb: {e}")
+            print("[INFO]: Continuing without wandb logging...")
+        
         # init wandb
         if wandb.run is None:
             wandb.init(
