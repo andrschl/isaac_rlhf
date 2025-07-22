@@ -1,0 +1,33 @@
+ x-default-isaac-rlhf-environment: &default-isaac-rlhf-environment
+  - OMNI_KIT_ALLOW_ROOT=1
+
+ x-default-isaac-rlhf-deploy: &default-isaac-rlhf-deploy
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [ gpu ]
+
+services:
+  isaac-rlhf:
+    env_file: .env.base
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      args:
+        - ISAACLAB_BASE_IMAGE_ARG=${ISAACLAB_BASE_IMAGE}
+        - DOCKER_ISAAC_RLHF_PATH_ARG=${DOCKER_ISAAC_RLHF_PATH}
+    image: isaac-rlhf
+    container_name: isaac-rlhf
+    volumes:
+      - type: bind
+        source: ../
+        target: ${DOCKER_ISAAC_RLHF_PATH}
+    network_mode: host
+    environment: *default-isaac-rlhf-environment
+    deploy: *default-isaac-rlhf-deploy
+    # This is the entrypoint for the container
+    entrypoint: bash
+    stdin_open: true
+    tty: true
