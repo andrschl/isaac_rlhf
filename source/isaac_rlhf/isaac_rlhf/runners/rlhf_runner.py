@@ -2,10 +2,15 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+from dotenv import load_dotenv
+
+# load .env into os.environ
+load_dotenv()
+
 import datetime
 import numpy as np
 import pandas as pd
-import os
 import wandb
 from typing import Literal, Optional
 
@@ -71,10 +76,10 @@ class RlhfRunner:
         os.makedirs(self.log_dir, exist_ok=True)
         print(f"[INFO]: Logging directory: {self.log_dir}")
         
-        # Login to wandb if not already logged in
+        # Login to wandb using the key from .env (not hardcoded)
         try:
-            # Try to get API key from environment variable
-            wandb.login(key='fe04019f20e97035a6d27a2e167efa17e0898356')
+            api_key = os.getenv("WANDB_API_KEY_ANDREAS")
+            wandb.login(key=api_key)
         except Exception as e:
             print(f"[WARNING]: Could not login to wandb: {e}")
             print("[INFO]: Continuing without wandb logging...")

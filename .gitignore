@@ -59,4 +59,6 @@ _build
 **/recordings/*
 
 # Pre-Trained Checkpoints
+# Environment variables
+.env
 /.pretrained_checkpoints/
