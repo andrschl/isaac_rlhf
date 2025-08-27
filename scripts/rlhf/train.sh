@@ -1,23 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-# 1) Load conda and activate your env
-#    Adjust the path to `conda.sh` if your install is elsewhere
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
-conda activate env_isaaclab
-
-# # Run the training script with the current seed and algorithm
-# echo "=== Running algo=rl ==="
-# python scripts/rlhf/train_rlhf.py \
-#   --rlhf_algorithm rl \
-
-# # force‑kill any stray Python processes and give the system a breather
-# # echo ">>> Killing leftover python processes..."
-# # pkill -9 python || true
-
-# # sleep a bit before next run
-# echo ">>> Sleeping for 10s before next run..."
-# sleep 20
 
 # TS loop
 SEEDS=$(seq 1 2)
