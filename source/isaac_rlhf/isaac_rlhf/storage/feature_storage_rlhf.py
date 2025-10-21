@@ -34,6 +34,7 @@ class FeatureStorageRlhf:
         self.lazy_update = False
         self.step = 0
         self.policy_step = 0
+        self.prev_pairs = 0  # number of stored pairs from the previous policy (ts_last)
 
         # circular rlhf episode buffers
         self.traj_features = torch.zeros(
@@ -75,6 +76,25 @@ class FeatureStorageRlhf:
         The results are expected to be a list of dictionaries, where each dictionary contains all
         the features for a given policy in result["features"], a tensor of shape
         [num_trajs_per_run, num_features].
+        
+        This function implements three different RLHF algorithms for storing trajectory comparisons:
+
+        1. "vanilla" & "rl": Compares trajectories from the same policy iteration against each other.
+        Creates pairwise comparisons by taking consecutive trajectory pairs (0 vs 1, 2 vs 3, etc).
+
+        2. "ts_last": Compares current policy trajectories against trajectories from the previous policy.
+        For the first iteration, compares trajectories from the same policy. Maintains a buffer of
+        previous trajectories for cross-policy comparisons.
+
+        3. "ts_double": Compares trajectories between two different policies running simultaneously.
+        Expects an even number of results (pairs of policies) and creates comparisons between
+        corresponding trajectories from each policy pair.
+
+        For all algorithms, the function:
+        - Stores trajectory feature differences in self.traj_features
+        - Updates the design matrix self.curr_V with outer products of feature differences
+        - Tracks policy IDs for each comparison
+        - Maintains a circular buffer that overwrites old entries when full
         """
 
         if self.cfg.rlhf_algorithm in ["vanilla", "rl"]:
@@ -82,75 +102,137 @@ class FeatureStorageRlhf:
 
             for idx in range(0, len(results)):
                 features = results[idx]["features"].to(self.device)
-                num_comparisons = self.cfg.num_trajectories_per_run // 2
-                for j in range(0, num_comparisons):
-                    buf_idx = self.step % self.max_ep_buffers_size
-                    self.traj_features[buf_idx, 0] = features[2 * j]
-                    self.traj_features[buf_idx, 1] = features[2 * j + 1]
-                    self.curr_V += torch.outer(
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
+                num_trajs = features.shape[0]
+                if num_trajs < 2:
+                    warnings.warn(
+                        "Received fewer than two trajectories; skipping preference comparisons for this policy.",
+                        stacklevel=2,
                     )
-                    self.policy_ids[buf_idx, 0] = self.policy_step
-                    self.policy_ids[buf_idx, 1] = self.policy_step
-                    self.mask[buf_idx] = True
-                    self.step += 1
-                self.policy_step += 1
+                    continue
+
+                num_comparisons = num_trajs // 2
+                if num_comparisons * 2 != num_trajs:
+                    warnings.warn(
+                        "Dropping the last trajectory because an odd number was provided; comparisons require pairs.",
+                        stacklevel=2,
+                    )
+
+                stored_pairs = 0
+                for j in range(num_comparisons):
+                    buf_idx = self.step % self.max_ep_buffers_size
+                    self.write_comparison(
+                        buf_idx,
+                        features[2 * j],
+                        features[2 * j + 1],
+                        self.policy_step,
+                        self.policy_step,
+                    )
+                    stored_pairs += 1
+
+                if stored_pairs > 0:
+                    self.policy_step += 1
 
         elif self.cfg.rlhf_algorithm == "ts_last":
             # ts_last: compare to the last policy
 
             for idx in range(0, len(results)):
                 features = results[idx]["features"].to(self.device)
-                num_comparisons = (
-                    self.cfg.num_trajectories_per_run // 2
-                )  # use only half of samples at time t and half at time t+1
-                for j in range(0, num_comparisons):
-                    buf_idx = self.step % self.max_ep_buffers_size
-                    self.traj_features[buf_idx, 0] = features[2 * j]
-                    self.policy_ids[buf_idx, 0] = self.policy_step
-                    if self.step == 0 and self.policy_step == 0:
-                        # Compare to trajectories from the same policy
-                        self.traj_features[buf_idx, 1] = features[2 * j + 1]
-                        self.policy_ids[buf_idx, 1] = self.policy_step
-                    else:
-                        # Compare to trajectories from the previous policy
-                        self.traj_features[buf_idx, 1] = self.traj_features_prev[j]
-                        self.policy_ids[buf_idx, 1] = self.policy_step - 1
-                    self.traj_features_prev[j] = features[2 * j + 1]
-                    self.curr_V += torch.outer(
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
+                num_trajs = features.shape[0]
+                if num_trajs < 2:
+                    warnings.warn(
+                        "Received fewer than two trajectories; skipping preference comparisons for this policy.",
+                        stacklevel=2,
                     )
-                    self.mask[buf_idx] = True
-                    self.step += 1
-                self.policy_step += 1
+                    self.prev_pairs = 0
+                    continue
+
+                total_pairs = num_trajs // 2
+                if total_pairs * 2 != num_trajs:
+                    warnings.warn(
+                        "Dropping the last trajectory because an odd number was provided; comparisons require pairs.",
+                        stacklevel=2,
+                    )
+
+                if self.policy_step == 0:
+                    pairs_to_compare = total_pairs
+                else:
+                    pairs_to_compare = min(total_pairs, self.prev_pairs)
+                    if total_pairs > self.prev_pairs:
+                        warnings.warn(
+                            "More trajectory pairs produced than stored from the previous policy; extra pairs are ignored for comparisons.",
+                            stacklevel=2,
+                        )
+
+                stored_pairs = 0
+                for j in range(pairs_to_compare):
+                    buf_idx = self.step % self.max_ep_buffers_size
+                    if self.policy_step == 0:
+                        second = features[2 * j + 1]
+                        second_policy = self.policy_step
+                    else:
+                        second = self.traj_features_prev[j]
+                        second_policy = self.policy_step - 1
+                    self.write_comparison(
+                        buf_idx,
+                        features[2 * j],
+                        second,
+                        self.policy_step,
+                        second_policy,
+                    )
+                    stored_pairs += 1
+
+                for j in range(total_pairs):
+                    self.traj_features_prev[j] = features[2 * j + 1]
+
+                self.prev_pairs = total_pairs
+
+                if stored_pairs > 0:
+                    self.policy_step += 1
 
         elif self.cfg.rlhf_algorithm == "ts_double":
             # ts_double: compare the two current policies, expect len(results) to be even and >=2.
 
+            if len(results) % 2 != 0:
+                raise ValueError(
+                    "Thompson sampling with paired policies expects an even number of results."
+                )
+
             for idx in range(0, len(results), 2):
                 f0 = results[idx]["features"].to(self.device)
                 f1 = results[idx + 1]["features"].to(self.device)
-                num_comparisons = self.cfg.num_trajectories_per_run // 2
+                num_pairs = min(f0.shape[0], f1.shape[0])
 
-                for j in range(0, num_comparisons):
-                    buf_idx = self.step % self.max_ep_buffers_size
-                    self.traj_features[buf_idx, 0] = f0[j]
-                    self.traj_features[buf_idx, 1] = f1[j]
-                    self.curr_V += torch.outer(
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
-                        self.traj_features[buf_idx, 0] - self.traj_features[buf_idx, 1],
+                if num_pairs == 0:
+                    warnings.warn(
+                        "Received empty trajectory batches; skipping preference comparisons for this policy pair.",
+                        stacklevel=2,
                     )
-                    self.policy_ids[buf_idx, 0] = 2 * self.policy_step
-                    self.policy_ids[buf_idx, 1] = 2 * self.policy_step + 1
-                    self.mask[buf_idx] = True
-                    self.step += 1
-                self.policy_step += 1
+                    continue
+
+                if f0.shape[0] != f1.shape[0]:
+                    warnings.warn(
+                        "Policy pair produced a different number of trajectories; comparisons will use the minimum count.",
+                        stacklevel=2,
+                    )
+
+                stored_pairs = 0
+                for j in range(num_pairs):
+                    buf_idx = self.step % self.max_ep_buffers_size
+                    self.write_comparison(
+                        buf_idx,
+                        f0[j],
+                        f1[j],
+                        2 * self.policy_step,
+                        2 * self.policy_step + 1,
+                    )
+                    stored_pairs += 1
+
+                if stored_pairs > 0:
+                    self.policy_step += 1
         else:
             raise ValueError(
                 f"Unknown rlhf_algorithm: {self.cfg.rlhf_algorithm}. "
-                "Expected one of ['vanilla', 'ts_double', 'ts_last']."
+                "Expected one of ['rl', 'vanilla', 'ts_double', 'ts_last']."
             )
 
         self.curr_V_inv = torch.linalg.inv(self.curr_V)
@@ -160,6 +242,16 @@ class FeatureStorageRlhf:
                 f"Write pointer step={self.step} exceeded max_ep_buffers_size={self.max_ep_buffers_size}. "
                 "Old entries will be overwritten."
             )
+
+    def write_comparison(self, buf_idx: int, first: torch.Tensor, second: torch.Tensor, policy_a: int, policy_b: int) -> None:
+        self.traj_features[buf_idx, 0] = first
+        self.traj_features[buf_idx, 1] = second
+        diff = (first - second).to(self.curr_V.device)
+        self.curr_V += torch.outer(diff, diff)
+        self.policy_ids[buf_idx, 0] = policy_a
+        self.policy_ids[buf_idx, 1] = policy_b
+        self.mask[buf_idx] = True
+        self.step += 1
 
     def get_preferences(self, reward_model: "LinearReward"):
         # collect only the valid design‐points  TODO: Add optimal design here.

@@ -79,6 +79,11 @@ if __name__ == "__main__":
         help="The L2 regularization parameter for MLE.",
     )
     parser.add_argument(
+        "--mle_lr",
+        type=float,
+        help="Learning rate for the MLE reward-model update.",
+    )
+    parser.add_argument(
         "--pure_exploration",
         action="store_true",
         help="Use pure exploration for Thompson sampling.",
@@ -114,7 +119,7 @@ if __name__ == "__main__":
 
     # System arguments
     parser.add_argument(
-        "--device", type=str, default="cuda", help="The device to run training on."
+        "--device", type=str, help="The device to run training on."
     )
     parser.add_argument(
         "--num_processes",

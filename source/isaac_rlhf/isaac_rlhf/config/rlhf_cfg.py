@@ -7,12 +7,10 @@ import torch
 class RlhfCfg:
     """Configuration for RLHF training."""
 
-    # Environment arguments
+    # Environment arguments (any manager-based env or gridworld e.g {"Isaac-Velocity-Flat-H1-v0", "Isaac-Reach-Franka-v0", "Isaac-Cartpole-v0", "gridworld"})
     task: str = (
-        "Isaac-Velocity-Flat-H1-v0"  # "Isaac-Reach-Franka-v0"  # "Isaac-Cartpole-v0"
+        "gridworld"
     )
-    #  "Isaac-Velocity-Flat-H1-v0"  # "Isaac-Reach-Franka-v0"  # "Isaac-Cartpole-v0"
-    # )
     num_envs: Optional[int] = None
     num_features: Optional[int] = None
     gt_params: Optional[torch.Tensor] = None
@@ -20,7 +18,7 @@ class RlhfCfg:
 
     # RLHF arguments
     num_rlhf_iterations: int = 30
-    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "vanilla"
+    rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "ts_last"
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 100
     trajectory_length: int = 150
@@ -46,10 +44,14 @@ class RlhfCfg:
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
     resume: bool = False
 
+    # Tabular specific RL arguments
+    entropy_coeff: float = 1e-3
+    tabular_alg: str = "svi"    # only for tabular envs: "svi" (soft_policy_iteration), or "npg" (natural policy gradient)
+
     # System arguments
     base_seed: int = 42
     num_processes: int = 1
-    device: str = "cuda"
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
     def to_dict(self):
         return asdict(self)

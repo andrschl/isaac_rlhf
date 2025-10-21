@@ -28,6 +28,11 @@ class LinearReward(nn.Module):
         # self.curr_V = self.V.clone().to("cpu")
         # self.curr_V_inv = self.V_inv.clone().to("cpu")
         self.gt_params = gt_params.to("cpu") if gt_params is not None else None
+        
+        # Ensure the linear layer weights have the same dtype as gt_params
+        if gt_params is not None:
+            self.reward.weight.data = self.reward.weight.data.to(gt_params.dtype)
+        
         self.device = device
         self.step = 0
 
@@ -36,13 +41,16 @@ class LinearReward(nn.Module):
 
     def get_reward(self, features):
         features = features.to(self.device)
+        # Ensure features have the same dtype as the model weights
+        features = features.to(self.reward.weight.dtype)
         return self.reward(features).squeeze(1)
 
     def get_gt_reward(self, features):
         features = features.to(self.device)
         if self.gt_params is None:
             raise ValueError("Ground truth parameters are not set.")
-        return torch.tensordot(features, self.gt_params, dims=([-1], [0])).to("cpu")
+        gt_params = self.gt_params.to(self.device).to(features.dtype)
+        return torch.tensordot(features, gt_params, dims=([-1], [0])).to("cpu")
 
     # def update_curr_V(self, feature_storage: FeatureStorageRlhf):
     #     # design_points: [num_samples, num_features]

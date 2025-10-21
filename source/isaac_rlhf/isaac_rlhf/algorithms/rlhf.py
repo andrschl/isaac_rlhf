@@ -1,19 +1,31 @@
 import multiprocessing
 import os
-import traceback
 import torch
-import time
+import numpy as np
 from contextlib import nullcontext
 from datetime import datetime
-from typing import Literal
 from einops import einsum
 import math
+
+from tabular_gym.env.gridworld import Gridworld
 
 from isaac_rlhf.config import RlhfCfg
 from isaac_rlhf.utils.rlhf_utils import MuteOutput, get_freest_gpu
 
-# Helpers
 
+DEBUG_ENABLED = os.environ.get("ISAAC_RLHF_DEBUG", "0").lower() not in {
+    "0",
+    "false",
+    "no",
+    "",
+}
+
+
+def debug_print(*args, **kwargs):
+    if DEBUG_ENABLED:
+        print(*args, **kwargs)
+
+# Helpers
 
 def set_seed(cfg):
     import torch
@@ -49,11 +61,60 @@ def create_environment(cfg: RlhfCfg, init: bool = False):
     env = gym.make(cfg.task, cfg=env_cfg)
     return env, simulation_app
 
+def create_tabular_environment(cfg: RlhfCfg):
+
+    params = {
+        'grid_height': 6,
+        'grid_width': 6,
+        'noise': 0.0,
+        'gamma': 0.9,
+    }
+
+    env = Gridworld(**params)
+    nu0 = np.zeros(env.n, dtype=np.float32)
+    nu0[14] = 1.0  # start in the middle of the grid
+    env.nu0 = nu0
+    r = np.zeros((env.n, env.m), dtype=np.float32)
+    r[5,:] = 1/2
+    r[33,:] = 1/2
+    env.r = r
+    feature_ids = [0,5,18,29,32,33]    #[0,1,2,3,4,5,6,11,12,17,18,23,24,29,30,31,32,33,34,35]
+    num_features = len(feature_ids)
+    Phi = np.zeros((env.n, env.m, num_features), dtype=np.float32)
+    for idx, state_id in enumerate(feature_ids):
+        Phi[state_id, :, idx] = 1
+    w_true = np.zeros(num_features, dtype=np.float32)
+    w_true[feature_ids.index(5)] = 1/2
+    w_true[feature_ids.index(33)] = 1/2
+    env.w_true = w_true
+    env.Phi = Phi
+    env.num_features = num_features
+
+    return env, None
+
+
+def extract_gt_params(env, cfg: RlhfCfg):
+    gt_params = {}
+    term_cfgs = env.unwrapped.reward_manager._term_cfgs
+    term_names = env.unwrapped.reward_manager._term_names
+    for term_cfg, name in zip(term_cfgs, term_names):
+        if term_cfg.weight != 0.0 and name not in cfg.ignored_reward_terms:
+            gt_params[name] = term_cfg.weight
+    return gt_params
+
 
 # Worker class
 class WorkerTask:
     def __init__(
-        self, idx, rewards_queue, results_queue, termination_event, cfg: RlhfCfg
+        self,
+        idx,
+        rewards_queue,
+        results_queue,
+        termination_event,
+        cfg: RlhfCfg,
+        shared_data,
+        constants_event,
+        constants_lock,
     ):
         self.idx = idx
         self.rewards_queue = rewards_queue
@@ -61,104 +122,131 @@ class WorkerTask:
         self.termination_event = termination_event
         self.cfg = cfg
         self.device = cfg.device
+        self.shared_data = shared_data
+        self.constants_event = constants_event
+        self.constants_lock = constants_lock
 
-        print(f"[DEBUG] Worker {self.idx} start creating environment.")
-        self.env, self.simulation_app = create_environment(cfg)
-        print(f"[DEBUG] Worker {self.idx} created environment: {self.env}")
+        debug_print(f"[DEBUG] Worker {self.idx} start creating environment.")
+        if cfg.task == "gridworld":
+            self.env, _ = create_tabular_environment(cfg)
+        else:
+            self.env, self.simulation_app = create_environment(cfg)
+        debug_print(f"[DEBUG] Worker {self.idx} created environment: {self.env}")
+
+        self.initialize_shared_constants()
 
     def prepare_rlhf_environment(self, reward_param: torch.Tensor):
         """Prepare environment for RLHF using reward_param."""
-        from isaaclab.envs import ManagerBasedRLEnv
-
-        # Adjust reward parameters in the environment:
-        unwrapped = self.env.unwrapped
-        if isinstance(unwrapped, ManagerBasedRLEnv):
-            idx = 0
-            for name, term_cfg in zip(
-                unwrapped.reward_manager._term_names,
-                unwrapped.reward_manager._term_cfgs,
-            ):
-                if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
-                    term_cfg.weight = float(reward_param[idx].item())
-                    idx += 1
+        if self.cfg.task == "gridworld":
+            w = reward_param.cpu().numpy()
+            r = einsum( w, self.env.Phi, "d, s a d -> s a")
+            self.env.r = r
+            self.env.w = w
         else:
-            raise Exception("Environment must be of type ManagerBasedRLEnv.")
+            from isaaclab.envs import ManagerBasedRLEnv
+
+            # Adjust reward parameters in the environment:
+            unwrapped = self.env.unwrapped
+            if isinstance(unwrapped, ManagerBasedRLEnv):
+                idx = 0
+                for name, term_cfg in zip(
+                    unwrapped.reward_manager._term_names,
+                    unwrapped.reward_manager._term_cfgs,
+                ):
+                    if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
+                        term_cfg.weight = float(reward_param[idx].item())
+                        idx += 1
+            else:
+                raise Exception("Environment must be of type ManagerBasedRLEnv.")
 
     def rl_training(self):
         """Run training for the environment. Return features and a log directory."""
-        from isaaclab_tasks.utils.parse_cfg import (
-            load_cfg_from_registry,
-            get_checkpoint_path,
-        )
+        if self.cfg.task == "gridworld":
+            if self.cfg.tabular_alg == "svi":
+                env = self.env
+                v = env.soft_v_it(np.zeros(env.n), self.cfg.entropy_coeff, max_iters=1e3)
+                policy = env.soft_v_greedy(v, self.cfg.entropy_coeff)
+                traj_features, mean_episode_reward, log_dir = self.record_tabular_features(policy, env)
+                return traj_features, mean_episode_reward, log_dir
 
-        if self.cfg.rl_library == "rsl_rl":
-            from rsl_rl.runners import OnPolicyRunner
-            from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
-
-            agent_cfg: RslRlOnPolicyRunnerCfg = load_cfg_from_registry(
-                self.cfg.task, "rsl_rl_cfg_entry_point"
-            )
-            agent_cfg.device = self.device
-            agent_cfg.seed = self.cfg.base_seed
-            agent_cfg.max_iterations = self.cfg.num_rl_iterations
-
-            log_root_path = os.path.join(
-                "logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name
-            )
-            log_root_path = os.path.abspath(log_root_path)
-            print(f"[INFO] Logging experiment in directory: {log_root_path}")
-            # specify directory for logging runs: {time-stamp}_{run_name}
-            run_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_Run-{self.idx}"
-            if agent_cfg.run_name:
-                run_dir += f"_{agent_cfg.run_name}"
-            log_dir = os.path.join(log_root_path, run_dir)
-
-            env = RslRlVecEnvWrapper(self.env)
-            runner = OnPolicyRunner(
-                env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device
-            )
-
-            # Load from previous checkpoint if available and not the first iteration
-            prev_checkpoint_path = getattr(self, "prev_checkpoint_path", None)
-            print(
-                f"[DEBUG] Resume is {self.cfg.resume}, prev_checkpoint_path: {prev_checkpoint_path}, prev_checkpoint_path exists: {os.path.exists(prev_checkpoint_path) if prev_checkpoint_path else 'N/A'}"
-            )
-            # Check if the previous checkpoint exists
-            if (
-                self.cfg.resume
-                and prev_checkpoint_path
-                and os.path.exists(prev_checkpoint_path)
-            ):
-                print(f"[DEBUG] Loading previous checkpoint.")
-                print(
-                    "[DEBUG] Previous checkpoint path: ",
-                    f"{prev_checkpoint_path}, exists: {os.path.exists(prev_checkpoint_path)}",
-                    f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}",
-                )
-                runner.load(prev_checkpoint_path)
-
-            runner.learn(
-                num_learning_iterations=agent_cfg.max_iterations,
-                init_at_random_ep_len=True,
-            )
-
-            # Save the checkpoint for the next iteration
-            self.prev_checkpoint_path = get_checkpoint_path(
-                log_root_path, run_dir, "model_*"
-            )
-
-            traj_features, mean_episode_reward = self.record_features(runner, env)
-            return traj_features, mean_episode_reward, log_dir
-
+            elif self.cfg.tabular_alg == "npg":
+                # TODO: implement RL training with NPG oracle
+                raise NotImplementedError("NPG training is not implemented yet.")
         else:
-            raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
+            from isaaclab_tasks.utils.parse_cfg import (
+                load_cfg_from_registry,
+                get_checkpoint_path,
+            )
+
+            if self.cfg.rl_library == "rsl_rl":
+                from rsl_rl.runners import OnPolicyRunner
+                from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+
+                agent_cfg: RslRlOnPolicyRunnerCfg = load_cfg_from_registry(
+                    self.cfg.task, "rsl_rl_cfg_entry_point"
+                )
+                agent_cfg.device = self.device
+                agent_cfg.seed = self.cfg.base_seed
+                agent_cfg.max_iterations = self.cfg.num_rl_iterations
+
+                log_root_path = os.path.join(
+                    "logs", "rl_runs", "rsl_rl_rlhf", agent_cfg.experiment_name
+                )
+                log_root_path = os.path.abspath(log_root_path)
+                print(f"[INFO] Logging experiment in directory: {log_root_path}")
+                # specify directory for logging runs: {time-stamp}_{run_name}
+                run_dir = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_Run-{self.idx}"
+                if agent_cfg.run_name:
+                    run_dir += f"_{agent_cfg.run_name}"
+                log_dir = os.path.join(log_root_path, run_dir)
+
+                env = RslRlVecEnvWrapper(self.env)
+                runner = OnPolicyRunner(
+                    env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device
+                )
+
+                # Load from previous checkpoint if available and not the first iteration
+                prev_checkpoint_path = getattr(self, "prev_checkpoint_path", None)
+                debug_print(
+                    f"[DEBUG] Resume is {self.cfg.resume}, prev_checkpoint_path: {prev_checkpoint_path}, prev_checkpoint_path exists: {os.path.exists(prev_checkpoint_path) if prev_checkpoint_path else 'N/A'}"
+                )
+                # Check if the previous checkpoint exists
+                if (
+                    self.cfg.resume
+                    and prev_checkpoint_path
+                    and os.path.exists(prev_checkpoint_path)
+                ):
+                    debug_print("[DEBUG] Loading previous checkpoint.")
+                    debug_print(
+                        "[DEBUG] Previous checkpoint path: ",
+                        f"{prev_checkpoint_path}, exists: {os.path.exists(prev_checkpoint_path)}",
+                        f"[INFO] Loading policy from previous checkpoint: {prev_checkpoint_path}",
+                    )
+                    runner.load(prev_checkpoint_path)
+
+                runner.learn(
+                    num_learning_iterations=agent_cfg.max_iterations,
+                    init_at_random_ep_len=True,
+                )
+
+                # Save the checkpoint for the next iteration
+                self.prev_checkpoint_path = get_checkpoint_path(
+                    log_root_path, run_dir, "model_*"
+                )
+
+                traj_features, mean_episode_reward = self.record_features(runner, env)
+                return traj_features, mean_episode_reward, log_dir
+
+            else:
+                raise Exception(f"framework {self.cfg.rl_library} is not supported yet.")
 
     def record_features(self, runner, env):
+        debug_print(f"[DEBUG] Number of environments: {env.num_envs}")
         if env.num_envs < self.cfg.num_trajectories_per_run:
             raise ValueError(
                 f"Number of trajectories ({self.cfg.num_trajectories_per_run}) is greater than number of environments ({env.num_envs})."
             )
-
+        
         if self.cfg.rl_library == "rsl_rl":
             # reset the env first
 
@@ -171,7 +259,7 @@ class WorkerTask:
             runner.eval_mode()
             gamma = runner.alg.gamma
 
-            print(self.cfg.to_dict())
+            debug_print(self.cfg.to_dict())
 
             traj_features = torch.zeros(
                 env.num_envs,
@@ -215,19 +303,30 @@ class WorkerTask:
                 )
 
         return torch.stack(reward_features, dim=1).to(self.device)
+    
+    def record_tabular_features(self, policy, env: Gridworld):
+        N = self.cfg.num_trajectories_per_run
+        T = self.cfg.trajectory_length
+        trajectories, traj_features = env.batched_trajectory_features(policy, env.Phi, N, T)
+        episode_rewards = einsum(traj_features, env.w, "n d, d -> n")
+        log_dir = None
+        debug_print("DEVICE:", self.device)
+        return torch.tensor(traj_features, device=self.device), float(episode_rewards.mean()), log_dir
 
     def run(self):
         """Main loop for the worker task."""
 
         print(f"[INFO]: Worker {self.idx} started.")
         while not self.termination_event.is_set():
-            print(f"[DEBUG]: Worker {self.idx} waiting for reward parameters.")
+            debug_print(f"[DEBUG]: Worker {self.idx} waiting for reward parameters.")
             self.reward_param = self.rewards_queue.get()
             if self.reward_param == "Stop":
                 break
 
             # try:
-            print(f"[DEBUG]: Worker {self.idx} prepare reward parameters: {self.reward_param}")
+            debug_print(
+                f"[DEBUG]: Worker {self.idx} prepare reward parameters: {self.reward_param}"
+            )
             self.prepare_rlhf_environment(self.reward_param)
             # Only display output for worker 0; others can be muted
             context = nullcontext() if self.idx == 0 else MuteOutput()
@@ -247,13 +346,53 @@ class WorkerTask:
 
         # Cleanup when finished.
         print(f"[INFO]: Worker {self.idx} terminated.")
-        self.env.close()
-        self.simulation_app.close()
+        if not self.cfg.task == "gridworld":
+            self.env.close()
+            self.simulation_app.close()
+
+    def initialize_shared_constants(self):
+        if self.constants_event.is_set():
+            return
+
+        with self.constants_lock:
+            if self.constants_event.is_set():
+                return
+
+            if self.cfg.task == "gridworld":
+                gt_params_dict = {
+                    f"f{i+1}": float(self.env.w_true[i]) for i in range(len(self.env.w_true))
+                }
+                dt = 1.0
+            else:
+                gt_params_dict = extract_gt_params(self.env, self.cfg)
+                dt = self.env.unwrapped.step_dt
+
+            self.shared_data["gt_params"] = gt_params_dict
+            self.shared_data["dt"] = dt
+            self.constants_event.set()
 
 
 # Define main worker function
-def worker_main(idx, rewards_queue, results_queue, termination_event, worker_cfg):
-    task = WorkerTask(idx, rewards_queue, results_queue, termination_event, worker_cfg)
+def worker_main(
+    idx,
+    rewards_queue,
+    results_queue,
+    termination_event,
+    worker_cfg,
+    shared_data,
+    constants_event,
+    constants_lock,
+):
+    task = WorkerTask(
+        idx,
+        rewards_queue,
+        results_queue,
+        termination_event,
+        worker_cfg,
+        shared_data,
+        constants_event,
+        constants_lock,
+    )
     task.run()
 
 
@@ -269,23 +408,27 @@ class RlhfTaskManager:
         # unpack the configuration
         self.cfg = cfg
         self.device = cfg.device
+        print(f"[INFO] Using device: {self.device}")
 
         # Initialize multiprocessing data structures
-        self.shared_data = (
-            multiprocessing.Manager().dict()
-        )  # if you need to share constants
+        self.manager = multiprocessing.Manager()
+        self.shared_data = self.manager.dict()  # if you need to share constants
         self.rewards_queues = [
             multiprocessing.Queue() for _ in range(cfg.num_processes)
         ]
         self.results_queue = multiprocessing.Queue()
         self.termination_event = multiprocessing.Event()
+        self.constants_event = multiprocessing.Event()
+        self.constants_lock = multiprocessing.Lock()
+        self.constants_loaded = False
         self.processes = {}
 
         # Initialize constants
         set_seed(cfg)
-        self.init_constants()
-        self.init_feature_storage()
-        self.init_reward_model()
+        self.reward_params = []
+
+        # RLHF iteration
+        self.rlhf_iter = 0
 
         print(
             f"[INFO] Running Rlhf with the following configuration: {self.cfg.to_dict()}"
@@ -302,6 +445,9 @@ class RlhfTaskManager:
                     self.results_queue,
                     self.termination_event,
                     worker_cfg,
+                    self.shared_data,
+                    self.constants_event,
+                    self.constants_lock,
                 ),
             )
             self.processes[idx] = p
@@ -309,21 +455,17 @@ class RlhfTaskManager:
 
         print(f"[INFO] Created {self.cfg.num_processes} worker processes for Rlhf.")
 
+        self.ensure_constants_loaded()
+        self.init_feature_storage()
+        self.init_reward_model()
+
     # Helpers for initialization
-    def init_constants(self):
-        p = multiprocessing.Process(target=self.init_process)
-        p.start()
-        p.join()
+    def ensure_constants_loaded(self):
+        """Wait for a worker process to initialize shared constants (gt_params, dt, etc.)."""
+        print("[INFO] Waiting for worker to initialize shared constants...")
+        self.constants_event.wait()
         self.init_from_shared_data()
-
-    def init_process(self):
-        env, simulation_app = create_environment(self.cfg, init=True)
-        self.shared_data["gt_params"] = self.fetch_gt_params(env)
-        self.shared_data["dt"] = env.unwrapped.step_dt
-
-        env.close()
-        time.sleep(15)  # Give some time for the process to close properly
-        simulation_app.close()
+        self.constants_loaded = True
 
     def init_from_shared_data(self):
         print(
@@ -336,15 +478,6 @@ class RlhfTaskManager:
             torch.randn(self.cfg.num_features, device="cpu")
             for _ in range(self.cfg.num_rl_runs)
         ]
-
-    def fetch_gt_params(self, env):
-        gt_params = {}
-        term_cfgs = env.unwrapped.reward_manager._term_cfgs
-        term_names = env.unwrapped.reward_manager._term_names
-        for term_cfg, name in zip(term_cfgs, term_names):
-            if term_cfg.weight != 0.0 and name not in self.cfg.ignored_reward_terms:
-                gt_params[name] = term_cfg.weight
-        return gt_params
 
     def init_feature_storage(self):
         from isaac_rlhf.storage.feature_storage_rlhf import FeatureStorageRlhf
@@ -373,9 +506,9 @@ class RlhfTaskManager:
 
     def get_pred_reward(self, results):
         """Compute approx. predicted reward."""
-        print(f"[DEBUG] Predicted reward features: {results[0]['features'].shape}")
+        debug_print(f"[DEBUG] Predicted reward features: {results[0]['features'].shape}")
         traj_features = sum([result["features"] for result in results]) / len(results)
-        print(traj_features)
+        debug_print(traj_features)
         pred_reward = self.reward_model.get_reward(traj_features).mean().item()
         return pred_reward
 
@@ -397,9 +530,9 @@ class RlhfTaskManager:
         for idx, result in enumerate(results):
             features = result["features"]
             mean_episode_reward = result["mean_episode_reward"]
-            param = torch.tensor(self.reward_params[idx])
-            print(f"[DEBUG] Worker {idx} results:")
-            print(
+            param = torch.tensor(self.reward_params[idx], dtype=features.dtype)
+            debug_print(f"[DEBUG] Worker {idx} results:")
+            debug_print(
                 torch.mean(einsum(features, param, "i j, j -> i")).item(),
                 mean_episode_reward,
             )
@@ -412,7 +545,7 @@ class RlhfTaskManager:
         for i in range(0, total, self.cfg.num_processes):
             batch = self.reward_params[i : i + self.cfg.num_processes]
             for idx in range(len(batch)):
-                print(
+                debug_print(
                     f"[DEBUG] Worker {idx} supposed to receive reward parameters: {batch[idx]}"
                     )
                 self.rewards_queues[idx].put(batch[idx])
@@ -429,7 +562,7 @@ class RlhfTaskManager:
         """Get synthetic preferences."""
         return self.feature_storage.get_preferences(self.reward_model)
 
-    def mle_update(self, iter=None):
+    def mle_update(self):
         from isaac_rlhf.algorithms import train_reward_model
 
         return train_reward_model(
@@ -439,10 +572,10 @@ class RlhfTaskManager:
             l2_reg=self.cfg.mle_l2_reg,
             epochs=self.cfg.mle_epochs,
             batch_size=self.cfg.mle_batch_size,
-            iter=iter,
+            iter=self.rlhf_iter,
         )
 
-    def sample_reward_params(self, iter=0) -> list[torch.Tensor]:
+    def sample_reward_params(self) -> list[torch.Tensor]:
         """Return the reward parameters as CPU tensors."""
 
         # Return updated reward params
@@ -450,23 +583,23 @@ class RlhfTaskManager:
         # if self.feature_storage.update_params:
         if (
             self.cfg.rlhf_algorithm == "vanilla"
-            or iter >= self.cfg.num_rlhf_iterations - 1
+            or self.rlhf_iter >= self.cfg.num_rlhf_iterations - 1
         ):
             self.reward_params = [thetahat] * self.cfg.num_rl_runs
-            print(
+            debug_print(
                 f"[DEBUG] Using vanilla RLHF with reward parameters: {self.reward_params}"
             )
             return self.reward_params
         if self.cfg.rlhf_algorithm in ["ts_double", "ts_last"]:
             alpha = 0.0 if self.cfg.pure_exploration else 1.0
-            print(f"[DEBUG] ßpson sampling with alpha: {alpha}")
+            debug_print(f"[DEBUG] Thompson sampling with alpha: {alpha}")
             eps = 1e-6
-            beta = self.cfg.beta1 + self.cfg.beta2 * max(math.log(iter + 1), 1)
+            beta = self.cfg.beta1 + self.cfg.beta2 * max(math.log(self.rlhf_iter + 1), 1)
             cov = beta**2 * self.feature_storage.V_inv
             cov = cov + eps * torch.eye(
                 cov.shape[0]
             )  # Add small noise to covariance for numerical stability
-            print(
+            debug_print(
                 f"[DEBUG] Is symmetric: {torch.allclose(cov, cov.T)}, is pos def: {torch.all(torch.linalg.eigvals(cov).real > 1e-8)}"
             )
             distribution = torch.distributions.MultivariateNormal(
@@ -508,3 +641,5 @@ class RlhfTaskManager:
             q.put("Stop")
         for p in self.processes.values():
             p.join()
+        if hasattr(self, "manager"):
+            self.manager.shutdown()
