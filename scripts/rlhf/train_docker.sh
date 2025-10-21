@@ -45,45 +45,45 @@ for seed in ${SEEDS}; do
     for beta2 in "${BETA2S[@]}"; do
 
       echo "=== Running ts seed=${seed}, beta1=${beta1}, beta2=${beta2} ==="
-      python scripts/rlhf/train_rlhf.py \
-        --base_seed ${seed} \
-        --beta1 ${beta1} \
-        --beta2 ${beta2} \
-        --rlhf_algorithm ts_last
+        $PYTHON_CMD scripts/rlhf/train_rlhf.py \
+          --base_seed ${seed} \
+          --beta1 ${beta1} \
+          --beta2 ${beta2} \
+          --rlhf_algorithm ts_last
 
       echo ">>> Sleeping for 10s before next run..."
       sleep 20
 
       echo "=== Running ts seed=${seed}, beta1=${beta1}, beta2=${beta2} ==="
-      python scripts/rlhf/train_rlhf.py \
-        --base_seed ${seed} \
-        --beta1 ${beta1} \
-        --beta2 ${beta2} \
-        --rlhf_algorithm ts_last \
-        --lazy
+        $PYTHON_CMD scripts/rlhf/train_rlhf.py \
+          --base_seed ${seed} \
+          --beta1 ${beta1} \
+          --beta2 ${beta2} \
+          --rlhf_algorithm ts_last \
+          --lazy
 
       echo ">>> Sleeping for 10s before next run..."
       sleep 20
       
       echo "=== Running ts seed=${seed}, beta1=${beta1}, beta2=${beta2} ==="
-      python scripts/rlhf/train_rlhf.py \
-        --base_seed ${seed} \
-        --beta1 ${beta1} \
-        --beta2 ${beta2} \
-        --rlhf_algorithm ts_last \
-        --lazy \
-        --opt_design 
+        $PYTHON_CMD scripts/rlhf/train_rlhf.py \
+          --base_seed ${seed} \
+          --beta1 ${beta1} \
+          --beta2 ${beta2} \
+          --rlhf_algorithm ts_last \
+          --lazy \
+          --opt_design 
 
       echo ">>> Sleeping for 10s before next run..."
       sleep 20
     done
   done
 
-  Run the training script with the current seed and algorithm
-  echo "=== Running seed=${seed}, algo=vanilla ==="
-  python scripts/rlhf/train_rlhf.py \
-    --base_seed ${seed} \
-    --rlhf_algorithm vanilla
+    # Run the training script with the current seed and algorithm
+    echo "=== Running seed=${seed}, algo=vanilla ==="
+    $PYTHON_CMD scripts/rlhf/train_rlhf.py \
+      --base_seed ${seed} \
+      --rlhf_algorithm vanilla
   
   echo ">>> Sleeping for 10s before next run..."
   sleep 20

@@ -1,8 +1,8 @@
- x-default-isaac-rlhf-environment: &default-isaac-rlhf-environment
+ x-default-isaac-lab-rlhf-environment: &default-isaac-lab-rlhf-environment
   - OMNI_KIT_ALLOW_ROOT=1
   - WANDB_API_KEY=${WANDB_API_KEY}
 
- x-default-isaac-rlhf-deploy: &default-isaac-rlhf-deploy
+ x-default-isaac-lab-rlhf-deploy: &default-isaac-lab-rlhf-deploy
   resources:
     reservations:
       devices:
@@ -11,7 +11,7 @@
           capabilities: [gpu]
 
  services:
-  isaac-rlhf:
+  isaac-lab-rlhf:
     env_file: .env.base
     build:
       context: ../
@@ -19,15 +19,15 @@
       args:
         - ISAACLAB_BASE_IMAGE_ARG=${ISAACLAB_BASE_IMAGE}
         - DOCKER_ISAAC_RLHF_PATH_ARG=${DOCKER_ISAAC_RLHF_PATH}
-    image: isaac-rlhf
-    container_name: isaac-rlhf
+    image: isaac-lab-rlhf
+    container_name: isaac-lab-rlhf
     volumes:
       - type: bind
         source: ../
         target: ${DOCKER_ISAAC_RLHF_PATH}
     network_mode: host
-    environment: *default-isaac-rlhf-environment
-    deploy: *default-isaac-rlhf-deploy
+    environment: *default-isaac-lab-rlhf-environment
+    deploy: *default-isaac-lab-rlhf-deploy
     
     # This is the entrypoint for the container
     entrypoint: bash
