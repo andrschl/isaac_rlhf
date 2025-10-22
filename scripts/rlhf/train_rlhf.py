@@ -9,12 +9,20 @@ import os
 import multiprocessing as mp
 
 from isaac_rlhf.runners import RlhfRunner
-from isaac_rlhf.config import RlhfCfg
+from isaac_rlhf.config import RlhfCfg, get_preset, list_presets
 
 
 def main(args_cli):
     kwargs = {k: v for k, v in vars(args_cli).items() if v is not None}
-    cfg = RlhfCfg(**kwargs)
+    preset_name = kwargs.pop("preset", None)
+
+    if preset_name:
+        cfg = get_preset(preset_name)
+    else:
+        cfg = RlhfCfg()
+
+    if kwargs:
+        cfg = cfg.replace(**kwargs)
     rlhf = RlhfRunner(cfg)
 
     rlhf.run()
@@ -29,6 +37,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train an RL agent with RLHF.")
 
     # Environment arguments
+    parser.add_argument(
+        "--preset",
+        type=str,
+        help="Name of a configuration preset to load.",
+    )
     parser.add_argument("--task", type=str, help="Name of the task.")
     parser.add_argument(
         "--num_envs",
@@ -60,7 +73,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--lazy",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Use lazy Thompson sampling.",
     )
     parser.add_argument(
@@ -70,7 +84,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--opt_design",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Use optimal design for Thompson sampling.",
     )
     parser.add_argument(
@@ -85,7 +100,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--pure_exploration",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Use pure exploration for Thompson sampling.",
     )
 
@@ -113,8 +129,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--resume",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Resume training from the last checkpoint.",
+    )
+
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        help="List available configuration presets and exit.",
     )
 
     # System arguments
@@ -131,6 +154,14 @@ if __name__ == "__main__":
     )
 
     args_cli = parser.parse_args()
+
+    if getattr(args_cli, "list_presets", False):
+        for name in list_presets():
+            print(name)
+        raise SystemExit(0)
+
+    # Drop helper flag before building kwargs.
+    args_cli.list_presets = None
 
     # Run the main function
     main(args_cli)

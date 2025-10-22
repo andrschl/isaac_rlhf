@@ -33,14 +33,14 @@ class RlhfCfg:
     # ignored_reward_terms: list[str] = field(default_factory=lambda: ["terminating"])   # never observed in cartpole
 
     # MLE arguments
-    num_mle_iterations: int = 100
-    mle_lr: float = 1e-3
+    #num_mle_iterations: int = 100
+    mle_lr: float = 1e-2
     mle_l2_reg: float = 1e-6
-    mle_epochs: int = 500
-    mle_batch_size: int = 64
+    mle_epochs: int = 50
+    mle_batch_size: int = 256
 
     # RL arguments
-    num_rl_iterations: int = 300
+    num_rl_iterations: int = 100
     rl_library: Literal["rsl_rl", "rl_games", "skrl"] = "rsl_rl"
     resume: bool = False
 

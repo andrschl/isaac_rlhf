@@ -254,7 +254,8 @@ class WorkerTask:
             # env = RslRlVecEnvWrapper(env.unwrapped.copy())
             with torch.inference_mode():
                 env.reset()
-            obs, _ = env.get_observations()
+            observations = env.get_observations()
+            obs = observations[0] if isinstance(observations, tuple) else observations
 
             runner.eval_mode()
             gamma = runner.alg.gamma
@@ -269,10 +270,12 @@ class WorkerTask:
             terminated = torch.zeros(env.num_envs, device=self.device)
             episode_rewards = torch.zeros(env.num_envs, device=self.device)
             for t in range(self.cfg.trajectory_length):
+                
                 with torch.inference_mode():
-                    actions = runner.alg.policy.act(obs).detach()
-                obs, rewards, dones, _ = env.step(actions)
-                obs = runner.obs_normalizer(obs)
+                    actions = runner.alg.act(obs).detach()
+                obs, rewards, dones, extras = runner.env.step(actions.to(self.device))
+                obs, rewards, dones = (obs.to(self.device), rewards.to(self.device), dones.to(self.device))
+                runner.alg.policy.update_normalization(obs)
                 terminated = terminated.int() | dones.int()
                 # print(
                 #     f"[DEBUG] Worker {self.idx} step {t}: rewards: {torch.mean(rewards)}, <theta, phi>: {self.cfg.dt * torch.mean(einsum(self.get_feature_values().cpu(), torch.tensor(self.reward_param).cpu(), 'i j, j -> i')).item()}"
@@ -367,6 +370,9 @@ class WorkerTask:
                 gt_params_dict = extract_gt_params(self.env, self.cfg)
                 dt = self.env.unwrapped.step_dt
 
+            self.cfg.gt_params = gt_params_dict
+            self.cfg.num_features = len(gt_params_dict)
+            self.cfg.dt = dt
             self.shared_data["gt_params"] = gt_params_dict
             self.shared_data["dt"] = dt
             self.constants_event.set()

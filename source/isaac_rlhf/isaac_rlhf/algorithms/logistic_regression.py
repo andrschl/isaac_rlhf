@@ -111,7 +111,7 @@ def train_reward_model(
                     ).item() / len(train_loader)
 
         # log to console
-        if epoch == epochs or epoch % 100 == 0:
+        if epoch == epochs or epoch % 10 == 0:
             train_acc = evaluate(train_loader)
             test_acc = evaluate(test_loader)
             print(

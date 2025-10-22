@@ -19,8 +19,8 @@ class FeatureStorageRlhf:
     def __init__(
         self,
         cfg: RlhfCfg,
-        max_ep_buffers_size=int(1e6),
-        max_dataset_size=int(1e8),
+        max_ep_buffers_size=int(1e4),
+        max_dataset_size=int(1e5),
         device="cpu",
     ):
         self.device = device
