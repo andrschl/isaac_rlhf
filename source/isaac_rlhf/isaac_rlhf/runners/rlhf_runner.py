@@ -23,6 +23,9 @@ DEBUG_ENABLED = os.environ.get("ISAAC_RLHF_DEBUG", "0").lower() not in {
     "",
 }
 
+WANDB_PROJECT = os.environ.get("SWEEP_PROJECT") or os.environ.get("WANDB_PROJECT") or "isaac_rlhf"
+WANDB_ENTITY = os.environ.get("SWEEP_ENTITY") or os.environ.get("WANDB_ENTITY")
+
 
 def debug_print(*args, **kwargs):
     if DEBUG_ENABLED:
@@ -64,7 +67,8 @@ class RlhfRunner:
         # init wandb
         run_name = self._build_run_name(cfg, timestamp)
         sweep_group = os.environ.get("ISAAC_RLHF_SWEEP_GROUP")
-        group_name = sweep_group or f"{cfg.task}_{cfg.rlhf_algorithm}"
+        env_group = os.environ.get("WANDB_RUN_GROUP")
+        group_name = env_group or sweep_group or f"{cfg.task}_{cfg.rlhf_algorithm}"
 
         # Add tags for easier filtering during hyperparameter tuning
         tags = [cfg.task, cfg.rlhf_algorithm]
@@ -72,18 +76,21 @@ class RlhfRunner:
             tags.append("lazy")
         tags.append(f"beta1_{cfg.beta1}")
         tags.append(f"beta2_{cfg.beta2}")
-        if sweep_group:
+        if sweep_group or env_group:
             tags.append("tuning")
 
         if wandb.run is None:
-            wandb.init(
-                project="isaac_rlhf",
+            init_kwargs = dict(
+                project=WANDB_PROJECT,
                 dir=self.log_dir,
                 config=cfg.to_dict(),
                 name=run_name,
                 group=group_name,
                 tags=tags,
             )
+            if WANDB_ENTITY:
+                init_kwargs["entity"] = WANDB_ENTITY
+            wandb.init(**init_kwargs)
         else:
             # running under a sweep agent, just update the config from sweep
             wandb.config.update(cfg.to_dict(), allow_val_change=True)

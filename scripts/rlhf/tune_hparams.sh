@@ -37,8 +37,8 @@ for seed in "${SEEDS[@]}"; do
   "${cmd[@]}"
 
   # ts_last / ts_double
-  for method in ts_last ts_double; do
-    for ((i=0; i<SAMPLES; ++i)); do
+  for ((i=0; i<SAMPLES; ++i)); do
+    for method in ts_last ts_double; do
       beta1=$(float_rand "$BETA1_MIN" "$BETA1_MAX")
       beta2=$(float_rand "$BETA2_MIN" "$BETA2_MAX")
       cmd=(python -u scripts/rlhf/train_rlhf.py
