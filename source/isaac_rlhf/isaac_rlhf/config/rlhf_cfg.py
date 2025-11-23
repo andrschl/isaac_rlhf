@@ -17,7 +17,7 @@ class RlhfCfg:
     dt: Optional[float] = None
 
     # RLHF arguments
-    num_rlhf_iterations: int = 30
+    num_rlhf_iterations: int = 5
     rlhf_algorithm: Literal["vanilla", "ts_double", "ts_last", "rl"] = "ts_last"
     num_rl_runs: int = 1
     num_trajectories_per_run: int = 100
@@ -26,7 +26,7 @@ class RlhfCfg:
     beta2: float = 1
     lambda_: float = 1.0
     lazy: bool = False
-    lazy_constant: float = 2.0
+    lazy_constant: float = 1.5
     opt_design: bool = False
     ignored_reward_terms: list[str] = field(default_factory=lambda: [])
     pure_exploration: bool = False

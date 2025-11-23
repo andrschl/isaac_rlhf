@@ -19,7 +19,8 @@ TS_DOUBLE_RUNS=${TS_DOUBLE_RUNS:-2}
 
 PRESETS=(
  # "cartpole"
-  "humanoid"
+ # "humanoid"
+  "isaac_humanoid"
 )
 
 echo "Using wandb group: $GROUP"

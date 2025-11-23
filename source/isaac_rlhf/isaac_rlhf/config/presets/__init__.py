@@ -37,13 +37,22 @@ def _register_presets() -> tuple[
         return RlhfCfg().replace(
             task="Isaac-Cartpole-v0",
             ignored_reward_terms=["terminating"],
-            num_rl_iterations=50,
+            num_rl_iterations=30,
+            num_rlhf_iterations=20,
         )
 
     def isaac_velocity_flat() -> RlhfCfg:
         return RlhfCfg().replace(
             task="Isaac-Velocity-Flat-H1-v0",
             num_rl_iterations=300,
+        )
+    
+    def isaac_humanoid() -> RlhfCfg:
+        return RlhfCfg().replace(
+            task="Isaac-Humanoid-v0",
+            num_rl_iterations=200,
+            num_rlhf_iterations=20,
+            trajectory_length=1000,
         )
 
     register("gridworld", gridworld)
@@ -59,7 +68,11 @@ def _register_presets() -> tuple[
         "velocity_flat",
         "isaac_velocity_flat",
     )
-
+    register(
+        "isaac_humanoid",
+        isaac_humanoid    
+    )
+    
     return registry, canonical_names
 
 
